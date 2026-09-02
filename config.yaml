@@ -1,0 +1,22 @@
+application:
+  name: ZeeAIBotWebCam
+  environment: development
+
+hardware:
+  mode: mock
+  vendor_path: vendor/TurboPi
+  serial_device: /dev/ttyAMA0
+
+web:
+  host: 127.0.0.1
+  port: 8000
+
+logging:
+  level: INFO
+
+safety:
+  motion_enabled: false
+
+privacy:
+  recording_enabled: false
+  face_recognition_enabled: false
