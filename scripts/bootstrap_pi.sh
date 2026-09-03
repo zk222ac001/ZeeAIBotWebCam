@@ -16,6 +16,7 @@ sudo apt install -y \
   python3-venv \
   python3-pip \
   python3-serial \
+  python3-smbus \
   python3-smbus2 \
   python3-numpy \
   python3-opencv \
@@ -23,6 +24,8 @@ sudo apt install -y \
   python3-munkres \
   ffmpeg \
   alsa-utils \
+  i2c-tools \
+  usbutils \
   curl
 
 echo "[3/6] Installing IMX500 support when available"
@@ -56,5 +59,6 @@ pytest -v
 echo
 echo "Bootstrap complete."
 echo "Activate with: source .venv/bin/activate"
-echo "Run with:      python -m robotic_classroom.main"
-echo "Phase 1 keeps motion disabled by default."
+echo "Run app with:  python -m robotic_classroom.main"
+echo "Phase 2 read-only checks: python scripts/phase2_readonly_check.py --system"
+echo "Motion remains disabled in the application by default."
