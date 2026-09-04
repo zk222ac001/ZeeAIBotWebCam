@@ -79,8 +79,8 @@ class AiortcConferenceBackend:
     def _video_track(self) -> Any:
         import cv2
         import numpy as np
-        from av import VideoFrame
         from aiortc import VideoStreamTrack
+        from av import VideoFrame
 
         camera = self.camera
         frame_rate = self.frame_rate
@@ -121,7 +121,7 @@ class AiortcConferenceBackend:
         try:
             while True:
                 await track.recv()
-        except Exception:
+        except Exception:  # noqa: BLE001 - peer track shutdown may raise transport-specific errors
             return
 
     async def _wait_for_ice_complete(self, pc: Any) -> None:
