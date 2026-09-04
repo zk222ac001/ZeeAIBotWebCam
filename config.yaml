@@ -6,6 +6,23 @@ hardware:
   mode: mock
   vendor_path: vendor/TurboPi
   serial_device: /dev/ttyAMA0
+  ultrasonic_enabled: true
+  infrared_enabled: true
+  motor_mapping_validated: false
+  pan_tilt:
+    enabled: false
+    pan:
+      channel: null
+      center: 1500
+      minimum: 1300
+      maximum: 1700
+      inverted: false
+    tilt:
+      channel: null
+      center: 1500
+      minimum: 1300
+      maximum: 1700
+      inverted: false
 
 web:
   host: 127.0.0.1
@@ -16,6 +33,10 @@ logging:
 
 safety:
   motion_enabled: false
+  minimum_obstacle_distance_cm: 30.0
+  heartbeat_timeout_ms: 750
+  control_lease_ttl_seconds: 10.0
+  require_control_lease: true
 
 privacy:
   recording_enabled: false
