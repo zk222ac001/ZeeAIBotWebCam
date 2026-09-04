@@ -9,9 +9,6 @@ def create_hardware_service(settings: Settings) -> HardwareService:
 
     # Lazy import is a safety requirement: the Hiwonder Board constructor opens
     # the serial port immediately, so mock mode must never import this backend.
-    from robotic_classroom.hardware.real_probe import TurboPiReadOnlyProbe
+    from robotic_classroom.hardware.turbopi_adapter import TurboPiAdapter
 
-    return TurboPiReadOnlyProbe(
-        vendor_path=settings.hardware.vendor_path,
-        serial_device=settings.hardware.serial_device,
-    )
+    return TurboPiAdapter(settings)
