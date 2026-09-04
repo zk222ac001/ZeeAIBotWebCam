@@ -77,6 +77,16 @@ class TrackingConfig(BaseModel):
         return self
 
 
+class PanTiltControlConfig(BaseModel):
+    enabled: bool = True
+    mode: Literal["plan_only"] = "plan_only"
+    poll_interval_ms: int = Field(default=50, ge=20, le=1000)
+    pan_gain_us: float = Field(default=400.0, ge=0.0, le=2000.0)
+    tilt_gain_us: float = Field(default=300.0, ge=0.0, le=2000.0)
+    max_step_us: int = Field(default=15, ge=1, le=200)
+    hold_on_lost_target: bool = True
+
+
 class WebConfig(BaseModel):
     host: str = "127.0.0.1"
     port: int = Field(default=8000, ge=1, le=65535)
@@ -104,6 +114,7 @@ class Settings(BaseModel):
     hardware: HardwareConfig
     camera: CameraConfig = Field(default_factory=CameraConfig)
     tracking: TrackingConfig = Field(default_factory=TrackingConfig)
+    pan_tilt_control: PanTiltControlConfig = Field(default_factory=PanTiltControlConfig)
     web: WebConfig
     logging: LoggingConfig
     safety: SafetyConfig
@@ -122,6 +133,7 @@ def load_settings(config_file: str | Path | None = None) -> Settings:
     hardware = raw.setdefault("hardware", {})
     camera = raw.setdefault("camera", {})
     tracking = raw.setdefault("tracking", {})
+    pan_tilt_control = raw.setdefault("pan_tilt_control", {})
 
     if value := os.getenv("HARDWARE_MODE"):
         hardware["mode"] = value
@@ -135,5 +147,7 @@ def load_settings(config_file: str | Path | None = None) -> Settings:
         camera["model_path"] = value
     if value := os.getenv("TRACKING_ENABLED"):
         tracking["enabled"] = value.lower() in {"1", "true", "yes", "on"}
+    if value := os.getenv("PAN_TILT_CONTROL_ENABLED"):
+        pan_tilt_control["enabled"] = value.lower() in {"1", "true", "yes", "on"}
 
     return Settings.model_validate(raw)
