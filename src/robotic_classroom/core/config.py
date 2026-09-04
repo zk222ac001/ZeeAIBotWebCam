@@ -87,6 +87,19 @@ class PanTiltControlConfig(BaseModel):
     hold_on_lost_target: bool = True
 
 
+class AudioConfig(BaseModel):
+    enabled: bool = True
+    mode: Literal["mock", "xvf3800_usb"] = "mock"
+    required: bool = False
+    vendor_id: int = Field(default=0x2886, ge=0, le=0xFFFF)
+    product_id: int = Field(default=0x001A, ge=0, le=0xFFFF)
+    poll_interval_ms: int = Field(default=100, ge=50, le=2000)
+    doa_smoothing_alpha: float = Field(default=0.35, gt=0.0, le=1.0)
+    vad_hangover_ms: int = Field(default=350, ge=0, le=5000)
+    orientation_offset_degrees: float = Field(default=0.0, ge=0.0, lt=360.0)
+    orientation_calibrated: bool = False
+
+
 class WebConfig(BaseModel):
     host: str = "127.0.0.1"
     port: int = Field(default=8000, ge=1, le=65535)
@@ -115,6 +128,7 @@ class Settings(BaseModel):
     camera: CameraConfig = Field(default_factory=CameraConfig)
     tracking: TrackingConfig = Field(default_factory=TrackingConfig)
     pan_tilt_control: PanTiltControlConfig = Field(default_factory=PanTiltControlConfig)
+    audio: AudioConfig = Field(default_factory=AudioConfig)
     web: WebConfig
     logging: LoggingConfig
     safety: SafetyConfig
@@ -134,6 +148,7 @@ def load_settings(config_file: str | Path | None = None) -> Settings:
     camera = raw.setdefault("camera", {})
     tracking = raw.setdefault("tracking", {})
     pan_tilt_control = raw.setdefault("pan_tilt_control", {})
+    audio = raw.setdefault("audio", {})
 
     if value := os.getenv("HARDWARE_MODE"):
         hardware["mode"] = value
@@ -149,5 +164,9 @@ def load_settings(config_file: str | Path | None = None) -> Settings:
         tracking["enabled"] = value.lower() in {"1", "true", "yes", "on"}
     if value := os.getenv("PAN_TILT_CONTROL_ENABLED"):
         pan_tilt_control["enabled"] = value.lower() in {"1", "true", "yes", "on"}
+    if value := os.getenv("AUDIO_MODE"):
+        audio["mode"] = value
+    if value := os.getenv("AUDIO_ENABLED"):
+        audio["enabled"] = value.lower() in {"1", "true", "yes", "on"}
 
     return Settings.model_validate(raw)
