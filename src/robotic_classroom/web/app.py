@@ -10,6 +10,7 @@ from robotic_classroom.camera.service import CameraService
 from robotic_classroom.core.config import load_settings
 from robotic_classroom.hardware.factory import create_hardware_service
 from robotic_classroom.safety.supervisor import SafetySupervisor
+from robotic_classroom.tracking.service import TrackingService
 
 settings = load_settings()
 
@@ -41,22 +42,27 @@ async def lifespan(app: FastAPI):
             hardware.stop()
             raise
 
+    tracking = TrackingService(camera, settings.tracking)
+    tracking.start()
+
     app.state.hardware = hardware
     app.state.safety = supervisor
     app.state.camera = camera
     app.state.camera_start_error = camera_start_error
+    app.state.tracking = tracking
 
     try:
         yield
     finally:
         supervisor.emergency_stop()
+        tracking.stop()
         camera.stop()
         hardware.stop()
 
 
 app = FastAPI(
     title="ZeeAIBotWebCam",
-    version="0.3.0",
+    version="0.4.0",
     description="AI-powered robotic classroom telepresence platform.",
     lifespan=lifespan,
 )
@@ -66,6 +72,7 @@ app = FastAPI(
 def health() -> dict[str, object]:
     hardware_status = app.state.hardware.status()
     camera_status = app.state.camera.status()
+    tracking_status = app.state.tracking.observation()
     return {
         "status": "ok",
         "application": settings.application.name,
@@ -82,6 +89,11 @@ def health() -> dict[str, object]:
             "running": camera_status.running,
             "people_count": camera_status.people_count,
             "message": app.state.camera_start_error or camera_status.message,
+        },
+        "tracking": {
+            "state": tracking_status.state.value,
+            "target_id": tracking_status.target_id,
+            "in_dead_zone": tracking_status.in_dead_zone,
         },
         "robot_state": app.state.safety.state.state.value,
         "motion_enabled": settings.safety.motion_enabled,
@@ -148,6 +160,29 @@ def camera_frame() -> Response:
     if jpeg is None:
         raise HTTPException(status_code=503, detail="Camera frame is not available")
     return Response(content=jpeg, media_type="image/jpeg")
+
+
+@app.get("/api/tracking/status")
+def tracking_status() -> dict[str, object]:
+    observation = app.state.tracking.observation()
+    return {
+        "state": observation.state.value,
+        "sequence": observation.sequence,
+        "target_id": observation.target_id,
+        "confidence": observation.confidence,
+        "center": (
+            {"x": observation.center_x, "y": observation.center_y}
+            if observation.center_x is not None and observation.center_y is not None
+            else None
+        ),
+        "error": (
+            {"x": observation.error_x, "y": observation.error_y}
+            if observation.error_x is not None and observation.error_y is not None
+            else None
+        ),
+        "in_dead_zone": observation.in_dead_zone,
+        "message": observation.message,
+    }
 
 
 @app.get("/api/safety")
