@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 from time import monotonic
 
@@ -24,5 +24,5 @@ class AudioObservation:
     doa_degrees: float | None
     orientation_calibrated: bool
     firmware_version: str | None = None
-    timestamp_monotonic: float = monotonic()
+    timestamp_monotonic: float = field(default_factory=monotonic)
     message: str = ""
