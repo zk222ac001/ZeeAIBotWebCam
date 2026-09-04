@@ -2,9 +2,11 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Response
 from pydantic import BaseModel, Field
 
+from robotic_classroom.camera.factory import create_camera_backend
+from robotic_classroom.camera.service import CameraService
 from robotic_classroom.core.config import load_settings
 from robotic_classroom.hardware.factory import create_hardware_service
 from robotic_classroom.safety.supervisor import SafetySupervisor
@@ -28,19 +30,33 @@ async def lifespan(app: FastAPI):
     hardware.start()
     supervisor = SafetySupervisor(settings, hardware)
 
+    camera = CameraService(create_camera_backend(settings))
+    camera_start_error = ""
+    try:
+        camera.start()
+    except Exception as exc:
+        camera_start_error = str(exc)
+        if settings.camera.required:
+            supervisor.emergency_stop()
+            hardware.stop()
+            raise
+
     app.state.hardware = hardware
     app.state.safety = supervisor
+    app.state.camera = camera
+    app.state.camera_start_error = camera_start_error
 
     try:
         yield
     finally:
         supervisor.emergency_stop()
+        camera.stop()
         hardware.stop()
 
 
 app = FastAPI(
     title="ZeeAIBotWebCam",
-    version="0.2.0",
+    version="0.3.0",
     description="AI-powered robotic classroom telepresence platform.",
     lifespan=lifespan,
 )
@@ -49,6 +65,7 @@ app = FastAPI(
 @app.get("/health")
 def health() -> dict[str, object]:
     hardware_status = app.state.hardware.status()
+    camera_status = app.state.camera.status()
     return {
         "status": "ok",
         "application": settings.application.name,
@@ -58,6 +75,13 @@ def health() -> dict[str, object]:
             "connected": hardware_status.connected,
             "battery_voltage": hardware_status.battery_voltage,
             "message": hardware_status.message,
+        },
+        "camera": {
+            "backend": camera_status.backend,
+            "connected": camera_status.connected,
+            "running": camera_status.running,
+            "people_count": camera_status.people_count,
+            "message": app.state.camera_start_error or camera_status.message,
         },
         "robot_state": app.state.safety.state.state.value,
         "motion_enabled": settings.safety.motion_enabled,
@@ -79,6 +103,51 @@ def sensors() -> dict[str, object]:
         "distance_cm": snapshot.distance_cm,
         "infrared": snapshot.infrared,
     }
+
+
+@app.get("/api/camera/status")
+def camera_status() -> dict[str, object]:
+    status = app.state.camera.status()
+    return {
+        "backend": status.backend,
+        "connected": status.connected,
+        "running": status.running,
+        "sequence": status.sequence,
+        "people_count": status.people_count,
+        "message": app.state.camera_start_error or status.message,
+    }
+
+
+@app.get("/api/camera/detections")
+def camera_detections() -> dict[str, object]:
+    snapshot = app.state.camera.snapshot()
+    return {
+        "backend": snapshot.backend,
+        "connected": snapshot.connected,
+        "sequence": snapshot.sequence,
+        "frame": {"width": snapshot.frame_width, "height": snapshot.frame_height},
+        "people": [
+            {
+                "label": person.label,
+                "confidence": person.confidence,
+                "box": {
+                    "x": person.box.x,
+                    "y": person.box.y,
+                    "width": person.box.width,
+                    "height": person.box.height,
+                },
+            }
+            for person in snapshot.people
+        ],
+    }
+
+
+@app.get("/api/camera/frame.jpg")
+def camera_frame() -> Response:
+    jpeg = app.state.camera.jpeg()
+    if jpeg is None:
+        raise HTTPException(status_code=503, detail="Camera frame is not available")
+    return Response(content=jpeg, media_type="image/jpeg")
 
 
 @app.get("/api/safety")
