@@ -4,7 +4,7 @@
 
 ZeeAIBotWebCam is a production-oriented research and teaching platform built around **Hiwonder TurboPi + Raspberry Pi + Sony IMX500 AI Camera + Python + Edge AI + WebRTC**.
 
-The repository follows a phased engineering process. The current software now includes the production hardware boundary, central safety layer, and a single-owner Sony IMX500 camera service. Real chassis movement remains intentionally locked until physical calibration is complete.
+The repository follows a phased engineering process. The current software includes the production hardware boundary, central safety layer, a single-owner Sony IMX500 camera service, and anonymous person tracking. Real chassis movement remains intentionally locked until physical calibration is complete.
 
 ## Project status
 
@@ -15,8 +15,9 @@ The repository follows a phased engineering process. The current software now in
 | Phase 2 | Physical hardware validation | 🧪 Baseline validated; calibration follow-ups remain |
 | Phase 3 | TurboPi production hardware adapter + safety supervisor | ✅ Phase 3A/3B implemented |
 | Phase 4 | Sony IMX500 AI Camera service + person-detection metadata | ✅ Implemented; real Pi validation required |
-| Phase 5 | Person tracking, smoothing and lost-target handling | ⏳ Next |
-| Phase 6+ | ReSpeaker fusion, WebRTC, active-speaker AI, hardening | ⏳ Planned |
+| Phase 5 | Person tracking, target selection, smoothing and lost-target handling | ✅ Implemented |
+| Phase 6 | Safety-routed pan/tilt tracking requests | ⏳ Next after servo calibration |
+| Phase 7+ | ReSpeaker fusion, WebRTC, active-speaker AI, hardening | ⏳ Planned |
 
 ## Current validated hardware baseline
 
@@ -59,6 +60,9 @@ hardware:
 camera:
   mode: mock
 
+tracking:
+  enabled: true
+
 safety:
   motion_enabled: false
 ```
@@ -80,10 +84,12 @@ flowchart LR
     CAM[Sony IMX500] --> CBACK[IMX500Camera]
     MOCK[MockCamera] --> CSVC[CameraService]
     CBACK --> CSVC
-    CSVC --> META[Person Detection Metadata]
-    CSVC --> JPEG[Shared JPEG Frame]
-    META --> TRACK[Future Tracking]
-    TRACK -. movement request only .-> SAFE
+    CSVC --> META[Anonymous Person Detections]
+    META --> TRACK[PersonTracker]
+    TRACK --> SMOOTH[Smoothing + Lost Target]
+    SMOOTH --> ERROR[Normalized X/Y Error]
+    ERROR --> TAPI[/api/tracking/status]
+    ERROR -. future movement request only .-> SAFE
 
     MIC[ReSpeaker XVF3800] --> AUDIO[Future Audio / VAD / DoA]
 ```
@@ -100,6 +106,7 @@ ZeeAIBotWebCam/
 │   ├── control/
 │   ├── hardware/
 │   ├── safety/
+│   ├── tracking/
 │   └── web/
 ├── tests/
 ├── scripts/
@@ -114,6 +121,7 @@ ZeeAIBotWebCam/
 - [`docs/phase-02-hardware-validation.md`](docs/phase-02-hardware-validation.md)
 - [`docs/phase-03-hardware-adapter-safety.md`](docs/phase-03-hardware-adapter-safety.md)
 - [`docs/phase-04-imx500-camera-service.md`](docs/phase-04-imx500-camera-service.md)
+- [`docs/phase-05-person-tracking.md`](docs/phase-05-person-tracking.md)
 - [`docs/hardware-api-inventory.md`](docs/hardware-api-inventory.md)
 - [`docs/architecture.md`](docs/architecture.md)
 - [`docs/safety.md`](docs/safety.md)
@@ -125,57 +133,48 @@ cd ~/ZeeAIBotWebCam
 git pull
 source .venv/bin/activate
 pip install -e ".[dev]"
+ruff check src tests
 pytest -v
 ```
 
-## Run in fully mocked development mode
+## Run Phase 5 in fully mocked mode
 
 ```bash
 export HARDWARE_MODE=mock
 export CAMERA_MODE=mock
+export TRACKING_ENABLED=true
 python -m robotic_classroom.main
 ```
 
 Open:
 
 - `http://127.0.0.1:8000/health`
-- `http://127.0.0.1:8000/ready`
-- `http://127.0.0.1:8000/api/sensors`
-- `http://127.0.0.1:8000/api/safety`
 - `http://127.0.0.1:8000/api/camera/status`
 - `http://127.0.0.1:8000/api/camera/detections`
+- `http://127.0.0.1:8000/api/tracking/status`
+- `http://127.0.0.1:8000/api/sensors`
+- `http://127.0.0.1:8000/api/safety`
 - `http://127.0.0.1:8000/docs`
 
-The mock camera deliberately does not generate a JPEG; `/api/camera/frame.jpg` returns 503 in mock mode.
-
-## Test the real Sony IMX500 while keeping robot motion mocked
-
-First confirm the model exists:
-
-```bash
-ls -lh /usr/share/imx500-models/imx500_network_ssd_mobilenetv2_fpnlite_320x320_pp.rpk
-```
-
-Then run:
+## Test the real Sony IMX500 while robot movement remains mocked
 
 ```bash
 export HARDWARE_MODE=mock
 export CAMERA_MODE=imx500
+export TRACKING_ENABLED=true
 python -m robotic_classroom.main
 ```
 
-This combination is intentional: it tests the real AI Camera while keeping TurboPi movement isolated.
-
-With VS Code Remote SSH, forward port `8000` and open on Windows:
+With VS Code Remote SSH, forward port `8000` and open:
 
 ```text
 http://localhost:8000/api/camera/status
 http://localhost:8000/api/camera/detections
+http://localhost:8000/api/tracking/status
 http://localhost:8000/api/camera/frame.jpg
-http://localhost:8000/docs
 ```
 
-Stand in front of the camera and refresh the detections endpoint. A successful response contains anonymous `person` detections with confidence and bounding-box coordinates. No face recognition or identity database is used.
+Stand in different parts of the camera frame and watch the tracking response. The tracker exposes an anonymous temporary target such as `Person-01`, normalized target centre, X/Y error from image centre, dead-zone state, and lost-target state. No face recognition or biometric identity is used.
 
 ## Safe API surface
 
@@ -187,6 +186,7 @@ GET  /api/safety
 GET  /api/camera/status
 GET  /api/camera/detections
 GET  /api/camera/frame.jpg
+GET  /api/tracking/status
 POST /api/control/lease
 POST /api/control/heartbeat
 POST /api/control/emergency-stop
@@ -216,16 +216,9 @@ The design defaults to:
 - no recording;
 - no cloud upload of raw classroom video by default;
 - anonymous on-device person detection;
-- explicit camera service state;
+- temporary tracking labels such as `Person-01` only;
 - future camera/microphone/conference indicators.
 
 ## Next phase
 
-**Phase 5** will build on the Phase 4 detection metadata to add:
-
-- target selection when several people are visible;
-- stable temporary person tracking;
-- bounding-box centre/error calculations;
-- temporal smoothing and hysteresis;
-- lost-target handling;
-- tracking requests that remain separated from direct servo/motor control.
+**Phase 6** will convert Phase 5 image-space errors into bounded pan/tilt *requests* routed through the Safety Supervisor. It will not be enabled on real hardware until both servo channels, direction, centre positions, and mechanical limits have been calibrated.
