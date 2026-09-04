@@ -120,7 +120,7 @@ class AudioService:
                     firmware_version=raw.firmware_version,
                     message=raw.message,
                 )
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001 - worker must surface arbitrary backend faults
                 latest = AudioObservation(
                     backend=self.config.mode,
                     connected=False,
