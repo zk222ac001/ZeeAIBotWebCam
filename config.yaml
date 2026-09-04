@@ -84,6 +84,21 @@ active_speaker:
   size_weight: 0.05
   continuity_weight: 0.10
 
+conference:
+  enabled: true
+  mode: mock
+  required: false
+  max_sessions: 2
+  session_timeout_seconds: 1800
+  ice_gathering_timeout_seconds: 5.0
+  publish_video: true
+  publish_audio: false
+  audio_input_device: default
+  allow_remote_audio: true
+  ice_servers: []
+  ice_username: null
+  ice_credential: null
+
 web:
   host: 127.0.0.1
   port: 8000
