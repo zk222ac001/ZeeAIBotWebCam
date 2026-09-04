@@ -4,7 +4,7 @@
 
 ZeeAIBotWebCam is a production-oriented research and teaching platform built around **Hiwonder TurboPi + Raspberry Pi + Sony IMX500 AI Camera + Python + Edge AI + WebRTC**.
 
-The repository follows a phased engineering process. The current software now includes the production hardware boundary and central safety layer, while real chassis movement remains intentionally locked until physical calibration is complete.
+The repository follows a phased engineering process. The current software now includes the production hardware boundary, central safety layer, and a single-owner Sony IMX500 camera service. Real chassis movement remains intentionally locked until physical calibration is complete.
 
 ## Project status
 
@@ -14,8 +14,9 @@ The repository follows a phased engineering process. The current software now in
 | Phase 1 | Development environment and software foundation | ✅ Implemented |
 | Phase 2 | Physical hardware validation | 🧪 Baseline validated; calibration follow-ups remain |
 | Phase 3 | TurboPi production hardware adapter + safety supervisor | ✅ Phase 3A/3B implemented |
-| Phase 4 | Sony IMX500 AI Camera service and inference layer | ⏳ Next |
-| Phase 5+ | Tracking, ReSpeaker fusion, WebRTC, active-speaker AI, hardening | ⏳ Planned |
+| Phase 4 | Sony IMX500 AI Camera service + person-detection metadata | ✅ Implemented; real Pi validation required |
+| Phase 5 | Person tracking, smoothing and lost-target handling | ⏳ Next |
+| Phase 6+ | ReSpeaker fusion, WebRTC, active-speaker AI, hardening | ⏳ Planned |
 
 ## Current validated hardware baseline
 
@@ -55,13 +56,16 @@ hardware:
   pan_tilt:
     enabled: false
 
+camera:
+  mode: mock
+
 safety:
   motion_enabled: false
 ```
 
 So normal application startup cannot drive the robot.
 
-## Phase 3 architecture
+## Current architecture
 
 ```mermaid
 flowchart LR
@@ -73,13 +77,15 @@ flowchart LR
     ADAPTER --> SDK[Hiwonder SDK]
     SDK --> HW[Motors / Servos / Sensors]
 
-    SONAR[Ultrasonic] --> SAFE
-    IR[IR Sensors] --> ADAPTER
-    CAM[Sony IMX500] --> CAMERA[Camera Service - Phase 4]
-    CAMERA --> VISION[Vision / Person Tracking]
-    MIC[ReSpeaker XVF3800] --> AUDIO[Audio / VAD / DoA]
+    CAM[Sony IMX500] --> CBACK[IMX500Camera]
+    MOCK[MockCamera] --> CSVC[CameraService]
+    CBACK --> CSVC
+    CSVC --> META[Person Detection Metadata]
+    CSVC --> JPEG[Shared JPEG Frame]
+    META --> TRACK[Future Tracking]
+    TRACK -. movement request only .-> SAFE
 
-    VISION -. movement request only .-> SAFE
+    MIC[ReSpeaker XVF3800] --> AUDIO[Future Audio / VAD / DoA]
 ```
 
 ## Repository layout
@@ -89,6 +95,7 @@ ZeeAIBotWebCam/
 ├── config.yaml
 ├── pyproject.toml
 ├── src/robotic_classroom/
+│   ├── camera/
 │   ├── core/
 │   ├── control/
 │   ├── hardware/
@@ -106,20 +113,26 @@ ZeeAIBotWebCam/
 - [`docs/phase-01-development-environment.md`](docs/phase-01-development-environment.md)
 - [`docs/phase-02-hardware-validation.md`](docs/phase-02-hardware-validation.md)
 - [`docs/phase-03-hardware-adapter-safety.md`](docs/phase-03-hardware-adapter-safety.md)
+- [`docs/phase-04-imx500-camera-service.md`](docs/phase-04-imx500-camera-service.md)
 - [`docs/hardware-api-inventory.md`](docs/hardware-api-inventory.md)
 - [`docs/architecture.md`](docs/architecture.md)
 - [`docs/safety.md`](docs/safety.md)
 
-## Run Phase 3 in mock mode
-
-### Raspberry Pi / Linux
+## Pull latest code on Raspberry Pi
 
 ```bash
 cd ~/ZeeAIBotWebCam
 git pull
 source .venv/bin/activate
-export HARDWARE_MODE=mock
+pip install -e ".[dev]"
 pytest -v
+```
+
+## Run in fully mocked development mode
+
+```bash
+export HARDWARE_MODE=mock
+export CAMERA_MODE=mock
 python -m robotic_classroom.main
 ```
 
@@ -129,17 +142,51 @@ Open:
 - `http://127.0.0.1:8000/ready`
 - `http://127.0.0.1:8000/api/sensors`
 - `http://127.0.0.1:8000/api/safety`
+- `http://127.0.0.1:8000/api/camera/status`
+- `http://127.0.0.1:8000/api/camera/detections`
 - `http://127.0.0.1:8000/docs`
 
-## Phase 3 safe API surface
+The mock camera deliberately does not generate a JPEG; `/api/camera/frame.jpg` returns 503 in mock mode.
 
-The application currently exposes only safety/status operations:
+## Test the real Sony IMX500 while keeping robot motion mocked
+
+First confirm the model exists:
+
+```bash
+ls -lh /usr/share/imx500-models/imx500_network_ssd_mobilenetv2_fpnlite_320x320_pp.rpk
+```
+
+Then run:
+
+```bash
+export HARDWARE_MODE=mock
+export CAMERA_MODE=imx500
+python -m robotic_classroom.main
+```
+
+This combination is intentional: it tests the real AI Camera while keeping TurboPi movement isolated.
+
+With VS Code Remote SSH, forward port `8000` and open on Windows:
+
+```text
+http://localhost:8000/api/camera/status
+http://localhost:8000/api/camera/detections
+http://localhost:8000/api/camera/frame.jpg
+http://localhost:8000/docs
+```
+
+Stand in front of the camera and refresh the detections endpoint. A successful response contains anonymous `person` detections with confidence and bounding-box coordinates. No face recognition or identity database is used.
+
+## Safe API surface
 
 ```text
 GET  /health
 GET  /ready
 GET  /api/sensors
 GET  /api/safety
+GET  /api/camera/status
+GET  /api/camera/detections
+GET  /api/camera/frame.jpg
 POST /api/control/lease
 POST /api/control/heartbeat
 POST /api/control/emergency-stop
@@ -148,27 +195,17 @@ POST /api/control/reset-stop
 
 There is deliberately **no public movement endpoint** yet.
 
-## Real sensor mode without enabling movement
-
-After reviewing the configuration, set:
-
-```yaml
-hardware:
-  mode: real
-
-safety:
-  motion_enabled: false
-```
-
-Then the API can expose real battery/ultrasonic/IR telemetry while movement remains disabled.
-
-## Upstream hardware SDK
+## Upstream hardware and camera software
 
 Hiwonder TurboPi:
 
 https://github.com/Hiwonder/TurboPi
 
-The project keeps the upstream Hiwonder code in `vendor/TurboPi` and wraps it through `TurboPiAdapter` rather than duplicating vendor drivers.
+Raspberry Pi Picamera2 / IMX500 support:
+
+https://github.com/raspberrypi/picamera2
+
+The project keeps vendor-specific behavior behind adapters and services rather than allowing application modules to open hardware directly.
 
 ## Privacy baseline
 
@@ -178,17 +215,17 @@ The design defaults to:
 - no biometric identity database;
 - no recording;
 - no cloud upload of raw classroom video by default;
-- on-device person detection/tracking where practical;
-- explicit indicators for camera, microphone and conference state.
+- anonymous on-device person detection;
+- explicit camera service state;
+- future camera/microphone/conference indicators.
 
 ## Next phase
 
-**Phase 4** will turn the already validated Sony IMX500 camera into a proper application service with:
+**Phase 5** will build on the Phase 4 detection metadata to add:
 
-- one camera owner;
-- shared frame distribution;
-- IMX500 person detection;
-- metadata extraction;
-- mock camera backend;
-- tests;
-- no direct movement from vision code.
+- target selection when several people are visible;
+- stable temporary person tracking;
+- bounding-box centre/error calculations;
+- temporal smoothing and hysteresis;
+- lost-target handling;
+- tracking requests that remain separated from direct servo/motor control.
