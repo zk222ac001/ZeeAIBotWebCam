@@ -24,6 +24,7 @@ sudo apt install -y \
   python3-munkres \
   ffmpeg \
   alsa-utils \
+  libusb-1.0-0 \
   i2c-tools \
   usbutils \
   curl
@@ -54,6 +55,8 @@ fi
 
 echo "[6/6] Running tests in mock mode"
 export HARDWARE_MODE=mock
+export CAMERA_MODE=mock
+export AUDIO_MODE=mock
 pytest -v
 
 echo
@@ -61,4 +64,5 @@ echo "Bootstrap complete."
 echo "Activate with: source .venv/bin/activate"
 echo "Run app with:  python -m robotic_classroom.main"
 echo "Phase 2 read-only checks: python scripts/phase2_readonly_check.py --system"
+echo "Phase 7 audio check: python scripts/phase7_audio_check.py"
 echo "Motion remains disabled in the application by default."
