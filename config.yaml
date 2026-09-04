@@ -24,6 +24,18 @@ hardware:
       maximum: 1700
       inverted: false
 
+camera:
+  enabled: true
+  mode: mock
+  required: false
+  model_path: /usr/share/imx500-models/imx500_network_ssd_mobilenetv2_fpnlite_320x320_pp.rpk
+  width: 1280
+  height: 720
+  frame_rate: 20
+  confidence_threshold: 0.55
+  jpeg_quality: 80
+  person_label: person
+
 web:
   host: 127.0.0.1
   port: 8000
