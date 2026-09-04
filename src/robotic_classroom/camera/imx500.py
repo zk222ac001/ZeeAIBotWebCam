@@ -95,7 +95,7 @@ class IMX500Camera:
             return ()
 
         boxes, scores, classes = outputs[0][0], outputs[1][0], outputs[2][0]
-        input_w, input_h = self._imx500.get_input_size()
+        _, input_h = self._imx500.get_input_size()
 
         if getattr(self._intrinsics, "bbox_normalization", False):
             boxes = boxes / input_h
@@ -113,11 +113,15 @@ class IMX500Camera:
 
             coords = tuple(float(v) for v in box)
             converted = self._imx500.convert_inference_coords(coords, metadata, self._picam2)
-            x, y, width, height = [int(v) for v in converted]
             people.append(
                 PersonDetection(
                     confidence=confidence,
-                    box=BoundingBox(x=x, y=y, width=width, height=height),
+                    box=BoundingBox(
+                        x=int(converted.x),
+                        y=int(converted.y),
+                        width=int(converted.width),
+                        height=int(converted.height),
+                    ),
                     label=label,
                 )
             )
@@ -160,7 +164,7 @@ class IMX500Camera:
                     self._latest_jpeg = encoded.tobytes()
                     self._latest_snapshot = snapshot
                     self._last_error = ""
-            except Exception as exc:  # camera worker must expose faults, not crash silently
+            except Exception as exc:
                 with self._lock:
                     self._last_error = str(exc)
                     self._latest_snapshot = CameraSnapshot(
