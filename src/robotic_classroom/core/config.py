@@ -128,6 +128,22 @@ class ActiveSpeakerConfig(BaseModel):
         return self
 
 
+class ConferenceConfig(BaseModel):
+    enabled: bool = True
+    mode: Literal["mock", "aiortc"] = "mock"
+    required: bool = False
+    max_sessions: int = Field(default=2, ge=1, le=10)
+    session_timeout_seconds: int = Field(default=1800, ge=60, le=86400)
+    ice_gathering_timeout_seconds: float = Field(default=5.0, ge=1.0, le=30.0)
+    publish_video: bool = True
+    publish_audio: bool = False
+    audio_input_device: str = "default"
+    allow_remote_audio: bool = True
+    ice_servers: list[str] = Field(default_factory=list)
+    ice_username: str | None = None
+    ice_credential: str | None = None
+
+
 class WebConfig(BaseModel):
     host: str = "127.0.0.1"
     port: int = Field(default=8000, ge=1, le=65535)
@@ -158,6 +174,7 @@ class Settings(BaseModel):
     pan_tilt_control: PanTiltControlConfig = Field(default_factory=PanTiltControlConfig)
     audio: AudioConfig = Field(default_factory=AudioConfig)
     active_speaker: ActiveSpeakerConfig = Field(default_factory=ActiveSpeakerConfig)
+    conference: ConferenceConfig = Field(default_factory=ConferenceConfig)
     web: WebConfig
     logging: LoggingConfig
     safety: SafetyConfig
@@ -179,6 +196,7 @@ def load_settings(config_file: str | Path | None = None) -> Settings:
     pan_tilt_control = raw.setdefault("pan_tilt_control", {})
     audio = raw.setdefault("audio", {})
     active_speaker = raw.setdefault("active_speaker", {})
+    conference = raw.setdefault("conference", {})
 
     if value := os.getenv("HARDWARE_MODE"):
         hardware["mode"] = value
@@ -209,5 +227,19 @@ def load_settings(config_file: str | Path | None = None) -> Settings:
         }
     if value := os.getenv("CAMERA_HORIZONTAL_FOV_DEGREES"):
         active_speaker["camera_horizontal_fov_degrees"] = float(value)
+    if value := os.getenv("CONFERENCE_MODE"):
+        conference["mode"] = value
+    if value := os.getenv("CONFERENCE_ENABLED"):
+        conference["enabled"] = value.lower() in {"1", "true", "yes", "on"}
+    if value := os.getenv("CONFERENCE_PUBLISH_AUDIO"):
+        conference["publish_audio"] = value.lower() in {"1", "true", "yes", "on"}
+    if value := os.getenv("CONFERENCE_AUDIO_INPUT_DEVICE"):
+        conference["audio_input_device"] = value
+    if value := os.getenv("WEBRTC_ICE_SERVERS"):
+        conference["ice_servers"] = [item.strip() for item in value.split(",") if item.strip()]
+    if value := os.getenv("WEBRTC_ICE_USERNAME"):
+        conference["ice_username"] = value
+    if value := os.getenv("WEBRTC_ICE_CREDENTIAL"):
+        conference["ice_credential"] = value
 
     return Settings.model_validate(raw)
