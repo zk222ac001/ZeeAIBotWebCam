@@ -4,7 +4,7 @@
 
 ZeeAIBotWebCam is a production-oriented research and teaching platform built around **Hiwonder TurboPi + Raspberry Pi + Sony IMX500 AI Camera + ReSpeaker XVF3800 + Python + Edge AI + WebRTC**.
 
-The repository follows a phased engineering process. The current software includes the production hardware boundary, central safety layer, single-owner Sony IMX500 camera service, anonymous person tracking, plan-only pan/tilt control, and a ReSpeaker VAD/DoA metadata service. Real robot movement remains intentionally locked until physical calibration is complete.
+The current software includes the hardware safety boundary, single-owner camera and audio services, anonymous person tracking, plan-only pan/tilt control, ReSpeaker VAD/DoA metadata, and active-speaker fusion. Physical robot motion remains intentionally locked until calibration is complete.
 
 ## Project status
 
@@ -13,21 +13,22 @@ The repository follows a phased engineering process. The current software includ
 | Phase 0 | Engineering analysis and architecture | ✅ Documented |
 | Phase 1 | Development environment and software foundation | ✅ Implemented |
 | Phase 2 | Physical hardware validation | 🧪 Baseline validated; calibration follow-ups remain |
-| Phase 3 | TurboPi production hardware adapter + safety supervisor | ✅ Implemented |
+| Phase 3 | TurboPi hardware adapter + safety supervisor | ✅ Implemented |
 | Phase 4 | Sony IMX500 camera service + person detection | ✅ Implemented; real Pi validation required |
 | Phase 5 | Anonymous person tracking and lost-target handling | ✅ Implemented |
 | Phase 6 | Bounded pan/tilt tracking planner | ✅ Implemented in plan-only mode |
 | Phase 7 | ReSpeaker XVF3800 VAD + DoA service | ✅ Implemented; real hardware validation required |
-| Phase 8 | Vision + audio active-speaker fusion | ⏳ Next |
-| Phase 9+ | WebRTC, remote control, production hardening | ⏳ Planned |
+| Phase 8 | Vision + audio active-speaker fusion | ✅ Implemented; geometry calibration required |
+| Phase 9 | WebRTC telepresence transport | ⏳ Next |
+| Phase 10+ | Remote control, active-speaker movement gating, production hardening | ⏳ Planned |
 
 ## Safety baseline
 
-> **AI, web, camera, tracking and audio modules never command motors directly.**
+> **AI, web, camera, tracking, audio, and fusion modules never command motors directly.**
 >
 > All future physical movement must pass through the central Safety Supervisor and verified hardware adapters.
 
-The committed configuration therefore remains safe:
+The committed configuration remains safe:
 
 ```yaml
 hardware:
@@ -44,6 +45,10 @@ pan_tilt_control:
 
 audio:
   mode: mock
+  orientation_calibrated: false
+
+active_speaker:
+  geometry_calibrated: false
 
 safety:
   motion_enabled: false
@@ -60,13 +65,14 @@ flowchart LR
 
     MIC[ReSpeaker XVF3800] --> ASVC[AudioService]
     ASVC --> VAD[VAD]
-    ASVC --> DOA[DoA]
+    ASVC --> DOA[Smoothed DoA]
 
-    TRACK --> FUSION[Phase 8 active-speaker fusion]
+    DET --> FUSION[ActiveSpeakerFusion]
     VAD --> FUSION
     DOA --> FUSION
+    FUSION --> FAPI[/api/active-speaker/status]
 
-    FUSION -. future movement request .-> SAFE[Safety Supervisor]
+    FUSION -. future recommendation only .-> SAFE[Safety Supervisor]
     PT -. plan only .-> SAFE
     SAFE --> ADAPTER[TurboPi Adapter]
     ADAPTER --> HW[Servos / Motors]
@@ -83,6 +89,7 @@ ZeeAIBotWebCam/
 │   ├── camera/
 │   ├── control/
 │   ├── core/
+│   ├── fusion/
 │   ├── hardware/
 │   ├── pan_tilt/
 │   ├── safety/
@@ -104,6 +111,7 @@ ZeeAIBotWebCam/
 - [`docs/phase-05-person-tracking.md`](docs/phase-05-person-tracking.md)
 - [`docs/phase-06-pan-tilt-planning.md`](docs/phase-06-pan-tilt-planning.md)
 - [`docs/phase-07-respeaker-audio-service.md`](docs/phase-07-respeaker-audio-service.md)
+- [`docs/phase-08-active-speaker-fusion.md`](docs/phase-08-active-speaker-fusion.md)
 - [`docs/hardware-api-inventory.md`](docs/hardware-api-inventory.md)
 - [`docs/architecture.md`](docs/architecture.md)
 - [`docs/safety.md`](docs/safety.md)
@@ -127,6 +135,8 @@ export CAMERA_MODE=mock
 export AUDIO_MODE=mock
 export TRACKING_ENABLED=true
 export PAN_TILT_CONTROL_ENABLED=true
+export ACTIVE_SPEAKER_ENABLED=true
+export ACTIVE_SPEAKER_GEOMETRY_CALIBRATED=false
 python -m robotic_classroom.main
 ```
 
@@ -142,6 +152,7 @@ GET /api/camera/frame.jpg
 GET /api/tracking/status
 GET /api/pan-tilt/plan
 GET /api/audio/status
+GET /api/active-speaker/status
 GET /api/safety
 ```
 
@@ -156,7 +167,7 @@ export AUDIO_MODE=mock
 python -m robotic_classroom.main
 ```
 
-Then open:
+Open:
 
 ```text
 http://localhost:8000/api/camera/status
@@ -166,7 +177,7 @@ http://localhost:8000/api/pan-tilt/plan
 http://localhost:8000/api/camera/frame.jpg
 ```
 
-## Phase 7 — test the ReSpeaker XVF3800
+## Test the ReSpeaker XVF3800
 
 First validate the physical device independently:
 
@@ -182,7 +193,7 @@ For USB control, the expected XVF3800 VID/PID is:
 2886:001a
 ```
 
-Then run the application with real microphone metadata while all robot hardware and vision remain mocked:
+Then run the application with real microphone metadata while robot hardware remains mocked:
 
 ```bash
 export HARDWARE_MODE=mock
@@ -197,27 +208,57 @@ Open:
 http://localhost:8000/api/audio/status
 ```
 
-A successful real-device response reports:
+## Phase 8 — active-speaker fusion
 
-- firmware version;
-- VAD speech state;
-- raw 0–359° direction of arrival;
-- smoothed/calibrated direction field;
-- whether physical microphone orientation has been calibrated.
+Phase 8 combines anonymous person detections with VAD/DoA evidence. It will not use DoA geometrically until both calibration gates are enabled:
 
-The orientation remains deliberately marked uncalibrated until the relationship between the microphone-array 0° direction and the robot's physical front has been measured.
+```yaml
+audio:
+  orientation_calibrated: true
+
+active_speaker:
+  geometry_calibrated: true
+```
+
+Before calibration, you can safely run both real sensors together:
+
+```bash
+export HARDWARE_MODE=mock
+export CAMERA_MODE=imx500
+export AUDIO_MODE=xvf3800_usb
+export ACTIVE_SPEAKER_ENABLED=true
+export ACTIVE_SPEAKER_GEOMETRY_CALIBRATED=false
+python -m robotic_classroom.main
+```
+
+Then observe:
+
+```text
+http://localhost:8000/api/camera/detections
+http://localhost:8000/api/audio/status
+http://localhost:8000/api/active-speaker/status
+```
+
+During speech, the active-speaker endpoint should report `calibration_required` until the physical microphone/camera geometry has been measured.
+
+The fusion output always includes:
+
+```json
+"movement_requested": false
+```
 
 ## Privacy baseline
 
 The design defaults to:
 
 - no face recognition;
+- no voice recognition;
 - no biometric identity database;
 - no recording;
 - no cloud upload of raw classroom video by default;
 - anonymous on-device person detection;
-- temporary labels such as `Person-01` only;
-- VAD/DoA metadata used without speaker identity;
+- temporary labels such as `Person-01` and `Speaker-01` only;
+- VAD/DoA metadata without speaker identity;
 - physical movement disabled by default.
 
 ## Upstream references
@@ -236,4 +277,4 @@ https://wiki.seeedstudio.com/respeaker_xvf3800_python_sdk/
 
 ## Next phase
 
-**Phase 8** will combine anonymous camera tracking with ReSpeaker VAD/DoA evidence to choose the most likely active speaker. It will remain a decision/planning layer first: audio will not be allowed to bypass the Safety Supervisor or directly move the robot.
+**Phase 9** will add the telepresence media path: camera/audio media interfaces, WebRTC session lifecycle, signaling boundaries, conference-state indicators, and mockable transport abstractions. The current safety rule remains unchanged: conferencing, AI, audio, and vision cannot bypass the Safety Supervisor or directly move the robot.
