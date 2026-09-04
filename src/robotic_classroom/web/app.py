@@ -9,6 +9,7 @@ from robotic_classroom.camera.factory import create_camera_backend
 from robotic_classroom.camera.service import CameraService
 from robotic_classroom.core.config import load_settings
 from robotic_classroom.hardware.factory import create_hardware_service
+from robotic_classroom.pan_tilt.service import PanTiltPlanningService
 from robotic_classroom.safety.supervisor import SafetySupervisor
 from robotic_classroom.tracking.service import TrackingService
 
@@ -45,16 +46,26 @@ async def lifespan(app: FastAPI):
     tracking = TrackingService(camera, settings.tracking)
     tracking.start()
 
+    pan_tilt = PanTiltPlanningService(
+        tracking,
+        settings.pan_tilt_control,
+        settings.hardware.pan_tilt.pan,
+        settings.hardware.pan_tilt.tilt,
+    )
+    pan_tilt.start()
+
     app.state.hardware = hardware
     app.state.safety = supervisor
     app.state.camera = camera
     app.state.camera_start_error = camera_start_error
     app.state.tracking = tracking
+    app.state.pan_tilt = pan_tilt
 
     try:
         yield
     finally:
         supervisor.emergency_stop()
+        pan_tilt.stop()
         tracking.stop()
         camera.stop()
         hardware.stop()
@@ -62,7 +73,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="ZeeAIBotWebCam",
-    version="0.4.0",
+    version="0.5.0",
     description="AI-powered robotic classroom telepresence platform.",
     lifespan=lifespan,
 )
@@ -73,6 +84,7 @@ def health() -> dict[str, object]:
     hardware_status = app.state.hardware.status()
     camera_status = app.state.camera.status()
     tracking_status = app.state.tracking.observation()
+    pan_tilt_plan = app.state.pan_tilt.plan()
     return {
         "status": "ok",
         "application": settings.application.name,
@@ -94,6 +106,11 @@ def health() -> dict[str, object]:
             "state": tracking_status.state.value,
             "target_id": tracking_status.target_id,
             "in_dead_zone": tracking_status.in_dead_zone,
+        },
+        "pan_tilt": {
+            "state": pan_tilt_plan.state.value,
+            "mode": settings.pan_tilt_control.mode,
+            "apply_to_hardware": pan_tilt_plan.apply_to_hardware,
         },
         "robot_state": app.state.safety.state.state.value,
         "motion_enabled": settings.safety.motion_enabled,
@@ -182,6 +199,35 @@ def tracking_status() -> dict[str, object]:
         ),
         "in_dead_zone": observation.in_dead_zone,
         "message": observation.message,
+    }
+
+
+@app.get("/api/pan-tilt/plan")
+def pan_tilt_plan() -> dict[str, object]:
+    plan = app.state.pan_tilt.plan()
+    return {
+        "state": plan.state.value,
+        "sequence": plan.sequence,
+        "target_id": plan.target_id,
+        "mode": settings.pan_tilt_control.mode,
+        "apply_to_hardware": plan.apply_to_hardware,
+        "pan": {
+            "desired_pulse": plan.pan.desired_pulse,
+            "planned_pulse": plan.pan.planned_pulse,
+            "minimum": plan.pan.minimum,
+            "center": plan.pan.center,
+            "maximum": plan.pan.maximum,
+            "inverted": plan.pan.inverted,
+        },
+        "tilt": {
+            "desired_pulse": plan.tilt.desired_pulse,
+            "planned_pulse": plan.tilt.planned_pulse,
+            "minimum": plan.tilt.minimum,
+            "center": plan.tilt.center,
+            "maximum": plan.tilt.maximum,
+            "inverted": plan.tilt.inverted,
+        },
+        "message": plan.message,
     }
 
 
