@@ -3,7 +3,7 @@ application:
   environment: development
 
 hardware:
-  mode: mock
+  mode: real
   vendor_path: vendor/TurboPi
   serial_device: /dev/ttyAMA0
   ultrasonic_enabled: true
