@@ -21,7 +21,7 @@ class AxisConfig(BaseModel):
     inverted: bool = False
 
     @model_validator(mode="after")
-    def validate_range(self) -> "AxisConfig":
+    def validate_range(self) -> AxisConfig:
         if not self.minimum <= self.center <= self.maximum:
             raise ValueError("axis calibration must satisfy minimum <= center <= maximum")
         return self
@@ -71,7 +71,7 @@ class TrackingConfig(BaseModel):
     size_weight: float = Field(default=0.20, ge=0.0, le=1.0)
 
     @model_validator(mode="after")
-    def validate_weights(self) -> "TrackingConfig":
+    def validate_weights(self) -> TrackingConfig:
         if self.center_weight + self.confidence_weight + self.size_weight <= 0.0:
             raise ValueError("at least one tracking selection weight must be greater than zero")
         return self
@@ -116,7 +116,7 @@ class ActiveSpeakerConfig(BaseModel):
     continuity_weight: float = Field(default=0.10, ge=0.0, le=1.0)
 
     @model_validator(mode="after")
-    def validate_weights(self) -> "ActiveSpeakerConfig":
+    def validate_weights(self) -> ActiveSpeakerConfig:
         total = (
             self.audio_alignment_weight
             + self.detection_confidence_weight
