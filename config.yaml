@@ -48,6 +48,15 @@ tracking:
   confidence_weight: 0.35
   size_weight: 0.20
 
+pan_tilt_control:
+  enabled: true
+  mode: plan_only
+  poll_interval_ms: 50
+  pan_gain_us: 400.0
+  tilt_gain_us: 300.0
+  max_step_us: 15
+  hold_on_lost_target: true
+
 web:
   host: 127.0.0.1
   port: 8000
