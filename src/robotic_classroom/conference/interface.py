@@ -2,7 +2,11 @@ from __future__ import annotations
 
 from typing import Protocol
 
-from robotic_classroom.conference.models import ConferenceAnswer, ConferenceStatus, SessionDescription
+from robotic_classroom.conference.models import (
+    ConferenceAnswer,
+    ConferenceStatus,
+    SessionDescription,
+)
 
 
 class ConferenceBackend(Protocol):
