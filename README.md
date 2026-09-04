@@ -4,7 +4,7 @@
 
 ZeeAIBotWebCam is a production-oriented research and teaching platform built around **Hiwonder TurboPi + Raspberry Pi + Sony IMX500 AI Camera + Python + Edge AI + WebRTC**.
 
-The repository follows a phased engineering process. The first phases establish the verified architecture, a safe software foundation, and physical hardware validation before any autonomous or remote movement is enabled.
+The repository follows a phased engineering process. The current software now includes the production hardware boundary and central safety layer, while real chassis movement remains intentionally locked until physical calibration is complete.
 
 ## Project status
 
@@ -12,64 +12,74 @@ The repository follows a phased engineering process. The first phases establish 
 |---|---|---|
 | Phase 0 | Engineering analysis and architecture | ✅ Documented |
 | Phase 1 | Development environment and software foundation | ✅ Implemented |
-| Phase 2 | Physical hardware validation | 🧪 Validation tooling generated; physical tests required |
-| Phase 3 | TurboPi production hardware adapter + safety supervisor | ⏳ Planned |
-| Phase 4 | Sony IMX500 AI Camera integration | ⏳ Planned |
-| Phase 5+ | Camera service, telepresence, tracking, WebRTC, active-speaker AI, hardening | ⏳ Planned |
+| Phase 2 | Physical hardware validation | 🧪 Baseline validated; calibration follow-ups remain |
+| Phase 3 | TurboPi production hardware adapter + safety supervisor | ✅ Phase 3A/3B implemented |
+| Phase 4 | Sony IMX500 AI Camera service and inference layer | ⏳ Next |
+| Phase 5+ | Tracking, ReSpeaker fusion, WebRTC, active-speaker AI, hardening | ⏳ Planned |
 
-## Confirmed physical hardware for Phase 2
+## Current validated hardware baseline
 
-Based on the current assembled robot and owned peripherals, Phase 2 targets:
+The project has already verified enough real hardware to continue software development:
 
-- four-wheel Hiwonder TurboPi Mecanum chassis;
-- Hiwonder controller/expansion electronics;
-- dual-18650 battery holder;
-- front Hiwonder ultrasonic distance sensor;
-- four-channel Hiwonder IR line sensor;
-- two-axis pan/tilt camera mount;
-- Raspberry Pi AI Camera using the Sony IMX500;
-- Seeed Studio ReSpeaker XVF3800 USB 4-Mic Array;
-- external speaker/audio output.
+- Raspberry Pi Remote SSH development;
+- project runtime on Raspberry Pi;
+- Hiwonder UART on `/dev/ttyAMA0`;
+- Hiwonder controller communication;
+- I2C bus availability;
+- ultrasonic sensor discovery;
+- Sony IMX500 AI Camera detection and still capture;
+- servo power rail around 4.7–4.97 V;
+- at least one PWM servo physically moving.
 
-The AI Camera must still be physically mounted and its ribbon orientation verified before camera testing.
+Open Phase 2 calibration items remain:
+
+- identify and calibrate both pan/tilt servo channels;
+- map the four IR channels to physical positions;
+- validate ReSpeaker XVF3800 capture/DoA path;
+- validate speaker output;
+- map all four motor IDs and polarity;
+- resolve battery telemetry interpretation before chassis movement.
 
 ## Core safety rule
 
 > **AI, web, vision and conference modules must never command motors directly.**
 >
-> All future chassis or pan/tilt movement must pass through a centralized safety controller and a verified TurboPi hardware adapter.
+> All chassis or pan/tilt movement must pass through the central Safety Supervisor and the TurboPi hardware adapter.
 
-The application therefore still defaults to:
+The application defaults to:
 
 ```yaml
 hardware:
   mode: mock
+  motor_mapping_validated: false
+  pan_tilt:
+    enabled: false
 
 safety:
   motion_enabled: false
 ```
 
-Phase 2 motor/servo checks are separate bench-test scripts, require an explicit `--confirm-motion` option, limit duty/range, and never expose movement through the web API.
+So normal application startup cannot drive the robot.
 
-## Architecture at a glance
+## Phase 3 architecture
 
 ```mermaid
 flowchart LR
-    UI[Remote User / Classroom UI] --> API[FastAPI / WebSocket]
-    API --> AUTH[Auth + Control Lease]
-    AUTH --> SAFE[Safety Supervisor]
+    UI[Remote User / Classroom UI] --> API[FastAPI]
+    API --> LEASE[Control Lease]
+    LEASE --> HEART[Heartbeat / Dead-man]
+    HEART --> SAFE[Safety Supervisor]
     SAFE --> ADAPTER[TurboPi Adapter]
     ADAPTER --> SDK[Hiwonder SDK]
     SDK --> HW[Motors / Servos / Sensors]
 
-    CAM[Sony IMX500] --> CAMERA[Camera Service]
+    SONAR[Ultrasonic] --> SAFE
+    IR[IR Sensors] --> ADAPTER
+    CAM[Sony IMX500] --> CAMERA[Camera Service - Phase 4]
     CAMERA --> VISION[Vision / Person Tracking]
-    CAMERA --> RTC[WebRTC Provider]
-    MIC[ReSpeaker XVF3800] --> AUDIO[Audio / VAD / DoA Pipeline]
-    AUDIO --> RTC
+    MIC[ReSpeaker XVF3800] --> AUDIO[Audio / VAD / DoA]
 
     VISION -. movement request only .-> SAFE
-    AUDIO -. active speaker evidence .-> SAFE
 ```
 
 ## Repository layout
@@ -80,14 +90,12 @@ ZeeAIBotWebCam/
 ├── pyproject.toml
 ├── src/robotic_classroom/
 │   ├── core/
+│   ├── control/
 │   ├── hardware/
+│   ├── safety/
 │   └── web/
 ├── tests/
 ├── scripts/
-│   ├── bootstrap_pi.sh
-│   ├── environment_report.sh
-│   ├── phase2_readonly_check.py
-│   └── phase2_actuator_test.py
 ├── vendor/
 └── docs/
 ```
@@ -97,30 +105,21 @@ ZeeAIBotWebCam/
 - [`docs/phase-00-engineering-analysis.md`](docs/phase-00-engineering-analysis.md)
 - [`docs/phase-01-development-environment.md`](docs/phase-01-development-environment.md)
 - [`docs/phase-02-hardware-validation.md`](docs/phase-02-hardware-validation.md)
+- [`docs/phase-03-hardware-adapter-safety.md`](docs/phase-03-hardware-adapter-safety.md)
 - [`docs/hardware-api-inventory.md`](docs/hardware-api-inventory.md)
 - [`docs/architecture.md`](docs/architecture.md)
 - [`docs/safety.md`](docs/safety.md)
 
-## Quick start — mock mode
+## Run Phase 3 in mock mode
 
-### Linux / Raspberry Pi
+### Raspberry Pi / Linux
 
 ```bash
-python3 -m venv .venv
+cd ~/ZeeAIBotWebCam
+git pull
 source .venv/bin/activate
-python -m pip install --upgrade pip
-pip install -e ".[dev]"
-python -m robotic_classroom.main
-```
-
-### Windows PowerShell
-
-```powershell
-py -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install --upgrade pip
-pip install -e ".[dev]"
-$env:HARDWARE_MODE="mock"
+export HARDWARE_MODE=mock
+pytest -v
 python -m robotic_classroom.main
 ```
 
@@ -128,47 +127,40 @@ Open:
 
 - `http://127.0.0.1:8000/health`
 - `http://127.0.0.1:8000/ready`
+- `http://127.0.0.1:8000/api/sensors`
+- `http://127.0.0.1:8000/api/safety`
 - `http://127.0.0.1:8000/docs`
 
-Run tests:
+## Phase 3 safe API surface
 
-```bash
-pytest -v
+The application currently exposes only safety/status operations:
+
+```text
+GET  /health
+GET  /ready
+GET  /api/sensors
+GET  /api/safety
+POST /api/control/lease
+POST /api/control/heartbeat
+POST /api/control/emergency-stop
+POST /api/control/reset-stop
 ```
 
-## Raspberry Pi setup
+There is deliberately **no public movement endpoint** yet.
 
-Use the bootstrap helper only after reviewing it:
+## Real sensor mode without enabling movement
 
-```bash
-chmod +x scripts/bootstrap_pi.sh
-./scripts/bootstrap_pi.sh
+After reviewing the configuration, set:
+
+```yaml
+hardware:
+  mode: real
+
+safety:
+  motion_enabled: false
 ```
 
-The Hiwonder repository is treated as external vendor software and is cloned to `vendor/TurboPi` by the bootstrap script. The upstream SDK is not duplicated or rewritten inside this application.
-
-## Phase 2 — start with read-only checks
-
-After physically checking wiring and power:
-
-```bash
-source .venv/bin/activate
-python scripts/phase2_readonly_check.py --system
-python scripts/phase2_readonly_check.py --i2c
-python scripts/phase2_readonly_check.py --audio
-```
-
-Then explicitly validate the Hiwonder controller and sensors:
-
-```bash
-python scripts/phase2_readonly_check.py --controller
-python scripts/phase2_readonly_check.py --sonar
-python scripts/phase2_readonly_check.py --ir
-```
-
-Read the complete Phase 2 procedure before any actuator test:
-
-[`docs/phase-02-hardware-validation.md`](docs/phase-02-hardware-validation.md)
+Then the API can expose real battery/ultrasonic/IR telemetry while movement remains disabled.
 
 ## Upstream hardware SDK
 
@@ -176,11 +168,11 @@ Hiwonder TurboPi:
 
 https://github.com/Hiwonder/TurboPi
 
-Phase 0 verified the real vendor APIs before designing this project. See the hardware inventory document for the exact API names currently relied upon.
+The project keeps the upstream Hiwonder code in `vendor/TurboPi` and wraps it through `TurboPiAdapter` rather than duplicating vendor drivers.
 
 ## Privacy baseline
 
-The initial design defaults to:
+The design defaults to:
 
 - no face recognition;
 - no biometric identity database;
@@ -189,6 +181,14 @@ The initial design defaults to:
 - on-device person detection/tracking where practical;
 - explicit indicators for camera, microphone and conference state.
 
-## Current limitation
+## Next phase
 
-Phase 2 tooling does not prove the hardware by itself. Raspberry Pi model, OS version, controller communication, battery telemetry, sensor mapping, motor directions, servo limits, IMX500 operation, ReSpeaker input and speaker output must be verified on the actual robot and recorded before Phase 3 begins.
+**Phase 4** will turn the already validated Sony IMX500 camera into a proper application service with:
+
+- one camera owner;
+- shared frame distribution;
+- IMX500 person detection;
+- metadata extraction;
+- mock camera backend;
+- tests;
+- no direct movement from vision code.
