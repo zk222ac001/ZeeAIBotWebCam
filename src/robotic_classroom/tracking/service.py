@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import threading
-import time
 
 from robotic_classroom.camera.service import CameraService
 from robotic_classroom.core.config import TrackingConfig
