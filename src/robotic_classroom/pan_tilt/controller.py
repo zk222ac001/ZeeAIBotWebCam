@@ -32,7 +32,7 @@ class PanTiltController:
 
     def _axis_target(self, error: float, axis: AxisConfig, gain_us: float) -> int:
         signed_error = -error if axis.inverted else error
-        desired = int(round(axis.center + signed_error * gain_us))
+        desired = round(axis.center + signed_error * gain_us)
         return self._clamp(desired, axis.minimum, axis.maximum)
 
     def _slew(self, current: int, desired: int) -> int:
