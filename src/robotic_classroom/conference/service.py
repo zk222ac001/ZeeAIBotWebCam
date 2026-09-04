@@ -3,7 +3,11 @@ from __future__ import annotations
 import asyncio
 
 from robotic_classroom.conference.interface import ConferenceBackend
-from robotic_classroom.conference.models import ConferenceAnswer, ConferenceStatus, SessionDescription
+from robotic_classroom.conference.models import (
+    ConferenceAnswer,
+    ConferenceStatus,
+    SessionDescription,
+)
 
 
 class ConferenceService:
