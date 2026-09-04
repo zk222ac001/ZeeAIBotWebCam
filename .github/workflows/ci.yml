@@ -10,6 +10,8 @@ jobs:
     runs-on: ubuntu-latest
     env:
       HARDWARE_MODE: mock
+      CAMERA_MODE: mock
+      AUDIO_MODE: mock
     steps:
       - name: Checkout
         uses: actions/checkout@v4
