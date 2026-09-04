@@ -57,6 +57,18 @@ pan_tilt_control:
   max_step_us: 15
   hold_on_lost_target: true
 
+audio:
+  enabled: true
+  mode: mock
+  required: false
+  vendor_id: 10374
+  product_id: 26
+  poll_interval_ms: 100
+  doa_smoothing_alpha: 0.35
+  vad_hangover_ms: 350
+  orientation_offset_degrees: 0.0
+  orientation_calibrated: false
+
 web:
   host: 127.0.0.1
   port: 8000
