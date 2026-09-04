@@ -1,6 +1,11 @@
 from __future__ import annotations
 
-from robotic_classroom.camera.models import CameraSnapshot, CameraStatus, PersonDetection, BoundingBox
+from robotic_classroom.camera.models import (
+    BoundingBox,
+    CameraSnapshot,
+    CameraStatus,
+    PersonDetection,
+)
 
 
 class MockCamera:
