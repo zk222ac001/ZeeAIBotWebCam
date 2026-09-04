@@ -5,6 +5,8 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, Response
 from pydantic import BaseModel, Field
 
+from robotic_classroom.audio.factory import create_audio_backend
+from robotic_classroom.audio.service import AudioService
 from robotic_classroom.camera.factory import create_camera_backend
 from robotic_classroom.camera.service import CameraService
 from robotic_classroom.core.config import load_settings
@@ -54,17 +56,34 @@ async def lifespan(app: FastAPI):
     )
     pan_tilt.start()
 
+    audio = AudioService(create_audio_backend(settings), settings.audio)
+    audio_start_error = ""
+    try:
+        audio.start()
+    except Exception as exc:
+        audio_start_error = str(exc)
+        if settings.audio.required:
+            supervisor.emergency_stop()
+            pan_tilt.stop()
+            tracking.stop()
+            camera.stop()
+            hardware.stop()
+            raise
+
     app.state.hardware = hardware
     app.state.safety = supervisor
     app.state.camera = camera
     app.state.camera_start_error = camera_start_error
     app.state.tracking = tracking
     app.state.pan_tilt = pan_tilt
+    app.state.audio = audio
+    app.state.audio_start_error = audio_start_error
 
     try:
         yield
     finally:
         supervisor.emergency_stop()
+        audio.stop()
         pan_tilt.stop()
         tracking.stop()
         camera.stop()
@@ -73,7 +92,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="ZeeAIBotWebCam",
-    version="0.5.0",
+    version="0.6.0",
     description="AI-powered robotic classroom telepresence platform.",
     lifespan=lifespan,
 )
@@ -85,6 +104,7 @@ def health() -> dict[str, object]:
     camera_status = app.state.camera.status()
     tracking_status = app.state.tracking.observation()
     pan_tilt_plan = app.state.pan_tilt.plan()
+    audio_status = app.state.audio.observation()
     return {
         "status": "ok",
         "application": settings.application.name,
@@ -111,6 +131,16 @@ def health() -> dict[str, object]:
             "state": pan_tilt_plan.state.value,
             "mode": settings.pan_tilt_control.mode,
             "apply_to_hardware": pan_tilt_plan.apply_to_hardware,
+        },
+        "audio": {
+            "backend": audio_status.backend,
+            "connected": audio_status.connected,
+            "running": audio_status.running,
+            "speech_state": audio_status.speech_state.value,
+            "speech_active": audio_status.speech_active,
+            "doa_degrees": audio_status.doa_degrees,
+            "orientation_calibrated": audio_status.orientation_calibrated,
+            "message": app.state.audio_start_error or audio_status.message,
         },
         "robot_state": app.state.safety.state.state.value,
         "motion_enabled": settings.safety.motion_enabled,
@@ -228,6 +258,24 @@ def pan_tilt_plan() -> dict[str, object]:
             "inverted": plan.tilt.inverted,
         },
         "message": plan.message,
+    }
+
+
+@app.get("/api/audio/status")
+def audio_status() -> dict[str, object]:
+    observation = app.state.audio.observation()
+    return {
+        "backend": observation.backend,
+        "connected": observation.connected,
+        "running": observation.running,
+        "sequence": observation.sequence,
+        "speech_state": observation.speech_state.value,
+        "speech_active": observation.speech_active,
+        "doa_degrees_raw": observation.doa_degrees_raw,
+        "doa_degrees": observation.doa_degrees,
+        "orientation_calibrated": observation.orientation_calibrated,
+        "firmware_version": observation.firmware_version,
+        "message": app.state.audio_start_error or observation.message,
     }
 
 
