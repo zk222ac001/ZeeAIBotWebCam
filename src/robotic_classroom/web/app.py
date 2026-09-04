@@ -10,6 +10,7 @@ from robotic_classroom.audio.service import AudioService
 from robotic_classroom.camera.factory import create_camera_backend
 from robotic_classroom.camera.service import CameraService
 from robotic_classroom.core.config import load_settings
+from robotic_classroom.fusion.service import ActiveSpeakerService
 from robotic_classroom.hardware.factory import create_hardware_service
 from robotic_classroom.pan_tilt.service import PanTiltPlanningService
 from robotic_classroom.safety.supervisor import SafetySupervisor
@@ -70,6 +71,9 @@ async def lifespan(app: FastAPI):
             hardware.stop()
             raise
 
+    active_speaker = ActiveSpeakerService(camera, audio, settings.active_speaker)
+    active_speaker.start()
+
     app.state.hardware = hardware
     app.state.safety = supervisor
     app.state.camera = camera
@@ -78,11 +82,13 @@ async def lifespan(app: FastAPI):
     app.state.pan_tilt = pan_tilt
     app.state.audio = audio
     app.state.audio_start_error = audio_start_error
+    app.state.active_speaker = active_speaker
 
     try:
         yield
     finally:
         supervisor.emergency_stop()
+        active_speaker.stop()
         audio.stop()
         pan_tilt.stop()
         tracking.stop()
@@ -92,7 +98,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="ZeeAIBotWebCam",
-    version="0.6.0",
+    version="0.7.0",
     description="AI-powered robotic classroom telepresence platform.",
     lifespan=lifespan,
 )
@@ -105,6 +111,7 @@ def health() -> dict[str, object]:
     tracking_status = app.state.tracking.observation()
     pan_tilt_plan = app.state.pan_tilt.plan()
     audio_status = app.state.audio.observation()
+    active_speaker_status = app.state.active_speaker.observation()
     return {
         "status": "ok",
         "application": settings.application.name,
@@ -141,6 +148,12 @@ def health() -> dict[str, object]:
             "doa_degrees": audio_status.doa_degrees,
             "orientation_calibrated": audio_status.orientation_calibrated,
             "message": app.state.audio_start_error or audio_status.message,
+        },
+        "active_speaker": {
+            "state": active_speaker_status.state.value,
+            "speaker_id": active_speaker_status.speaker_id,
+            "confidence": active_speaker_status.confidence,
+            "geometry_calibrated": settings.active_speaker.geometry_calibrated,
         },
         "robot_state": app.state.safety.state.state.value,
         "motion_enabled": settings.safety.motion_enabled,
@@ -276,6 +289,30 @@ def audio_status() -> dict[str, object]:
         "orientation_calibrated": observation.orientation_calibrated,
         "firmware_version": observation.firmware_version,
         "message": app.state.audio_start_error or observation.message,
+    }
+
+
+@app.get("/api/active-speaker/status")
+def active_speaker_status() -> dict[str, object]:
+    observation = app.state.active_speaker.observation()
+    return {
+        "state": observation.state.value,
+        "sequence": observation.sequence,
+        "speaker_id": observation.speaker_id,
+        "confidence": observation.confidence,
+        "candidate_index": observation.candidate_index,
+        "center": (
+            {"x": observation.center_x, "y": observation.center_y}
+            if observation.center_x is not None and observation.center_y is not None
+            else None
+        ),
+        "camera_angle_degrees": observation.camera_angle_degrees,
+        "doa_degrees": observation.doa_degrees,
+        "angular_error_degrees": observation.angular_error_degrees,
+        "audio_orientation_calibrated": app.state.audio.observation().orientation_calibrated,
+        "geometry_calibrated": settings.active_speaker.geometry_calibrated,
+        "movement_requested": False,
+        "message": observation.message,
     }
 
 
