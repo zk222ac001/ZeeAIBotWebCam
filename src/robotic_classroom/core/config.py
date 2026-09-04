@@ -43,6 +43,21 @@ class HardwareConfig(BaseModel):
     pan_tilt: PanTiltConfig = Field(default_factory=PanTiltConfig)
 
 
+class CameraConfig(BaseModel):
+    enabled: bool = True
+    mode: Literal["mock", "imx500"] = "mock"
+    required: bool = False
+    model_path: Path = Path(
+        "/usr/share/imx500-models/imx500_network_ssd_mobilenetv2_fpnlite_320x320_pp.rpk"
+    )
+    width: int = Field(default=1280, ge=320, le=4056)
+    height: int = Field(default=720, ge=240, le=3040)
+    frame_rate: int = Field(default=20, ge=1, le=60)
+    confidence_threshold: float = Field(default=0.55, ge=0.0, le=1.0)
+    jpeg_quality: int = Field(default=80, ge=40, le=100)
+    person_label: str = "person"
+
+
 class WebConfig(BaseModel):
     host: str = "127.0.0.1"
     port: int = Field(default=8000, ge=1, le=65535)
@@ -68,6 +83,7 @@ class PrivacyConfig(BaseModel):
 class Settings(BaseModel):
     application: ApplicationConfig
     hardware: HardwareConfig
+    camera: CameraConfig = Field(default_factory=CameraConfig)
     web: WebConfig
     logging: LoggingConfig
     safety: SafetyConfig
@@ -84,6 +100,7 @@ def load_settings(config_file: str | Path | None = None) -> Settings:
         raw = yaml.safe_load(handle) or {}
 
     hardware = raw.setdefault("hardware", {})
+    camera = raw.setdefault("camera", {})
 
     if value := os.getenv("HARDWARE_MODE"):
         hardware["mode"] = value
@@ -91,5 +108,9 @@ def load_settings(config_file: str | Path | None = None) -> Settings:
         hardware["vendor_path"] = value
     if value := os.getenv("TURBOPI_SERIAL_DEVICE"):
         hardware["serial_device"] = value
+    if value := os.getenv("CAMERA_MODE"):
+        camera["mode"] = value
+    if value := os.getenv("IMX500_MODEL_PATH"):
+        camera["model_path"] = value
 
     return Settings.model_validate(raw)
