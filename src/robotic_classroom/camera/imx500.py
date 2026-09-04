@@ -5,7 +5,12 @@ import time
 from pathlib import Path
 from typing import Any
 
-from robotic_classroom.camera.models import BoundingBox, CameraSnapshot, CameraStatus, PersonDetection
+from robotic_classroom.camera.models import (
+    BoundingBox,
+    CameraSnapshot,
+    CameraStatus,
+    PersonDetection,
+)
 
 
 class IMX500Camera:
@@ -164,7 +169,7 @@ class IMX500Camera:
                     self._latest_jpeg = encoded.tobytes()
                     self._latest_snapshot = snapshot
                     self._last_error = ""
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001 - worker must surface arbitrary camera faults
                 with self._lock:
                     self._last_error = str(exc)
                     self._latest_snapshot = CameraSnapshot(
