@@ -36,6 +36,18 @@ camera:
   jpeg_quality: 80
   person_label: person
 
+tracking:
+  enabled: true
+  poll_interval_ms: 50
+  smoothing_alpha: 0.35
+  lost_target_timeout_ms: 1200
+  reacquire_distance_ratio: 0.30
+  dead_zone_x: 0.08
+  dead_zone_y: 0.10
+  center_weight: 0.45
+  confidence_weight: 0.35
+  size_weight: 0.20
+
 web:
   host: 127.0.0.1
   port: 8000
