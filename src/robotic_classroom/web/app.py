@@ -9,6 +9,9 @@ from robotic_classroom.audio.factory import create_audio_backend
 from robotic_classroom.audio.service import AudioService
 from robotic_classroom.camera.factory import create_camera_backend
 from robotic_classroom.camera.service import CameraService
+from robotic_classroom.conference.factory import create_conference_backend
+from robotic_classroom.conference.router import router as conference_router
+from robotic_classroom.conference.service import ConferenceService
 from robotic_classroom.core.config import load_settings
 from robotic_classroom.fusion.service import ActiveSpeakerService
 from robotic_classroom.hardware.factory import create_hardware_service
@@ -74,6 +77,22 @@ async def lifespan(app: FastAPI):
     active_speaker = ActiveSpeakerService(camera, audio, settings.active_speaker)
     active_speaker.start()
 
+    conference = ConferenceService(create_conference_backend(settings, camera))
+    conference_start_error = ""
+    try:
+        await conference.start()
+    except Exception as exc:
+        conference_start_error = str(exc)
+        if settings.conference.required:
+            supervisor.emergency_stop()
+            active_speaker.stop()
+            audio.stop()
+            pan_tilt.stop()
+            tracking.stop()
+            camera.stop()
+            hardware.stop()
+            raise
+
     app.state.hardware = hardware
     app.state.safety = supervisor
     app.state.camera = camera
@@ -83,11 +102,14 @@ async def lifespan(app: FastAPI):
     app.state.audio = audio
     app.state.audio_start_error = audio_start_error
     app.state.active_speaker = active_speaker
+    app.state.conference = conference
+    app.state.conference_start_error = conference_start_error
 
     try:
         yield
     finally:
         supervisor.emergency_stop()
+        await conference.stop()
         active_speaker.stop()
         audio.stop()
         pan_tilt.stop()
@@ -98,10 +120,11 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="ZeeAIBotWebCam",
-    version="0.7.0",
+    version="0.8.0",
     description="AI-powered robotic classroom telepresence platform.",
     lifespan=lifespan,
 )
+app.include_router(conference_router)
 
 
 @app.get("/health")
@@ -154,6 +177,13 @@ def health() -> dict[str, object]:
             "speaker_id": active_speaker_status.speaker_id,
             "confidence": active_speaker_status.confidence,
             "geometry_calibrated": settings.active_speaker.geometry_calibrated,
+        },
+        "conference": {
+            "backend": settings.conference.mode,
+            "enabled": settings.conference.enabled,
+            "publish_video": settings.conference.publish_video,
+            "publish_audio": settings.conference.publish_audio,
+            "message": app.state.conference_start_error,
         },
         "robot_state": app.state.safety.state.state.value,
         "motion_enabled": settings.safety.motion_enabled,
