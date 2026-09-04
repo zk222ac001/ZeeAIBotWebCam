@@ -58,6 +58,25 @@ class CameraConfig(BaseModel):
     person_label: str = "person"
 
 
+class TrackingConfig(BaseModel):
+    enabled: bool = True
+    poll_interval_ms: int = Field(default=50, ge=20, le=1000)
+    smoothing_alpha: float = Field(default=0.35, gt=0.0, le=1.0)
+    lost_target_timeout_ms: int = Field(default=1200, ge=100, le=10000)
+    reacquire_distance_ratio: float = Field(default=0.30, gt=0.0, le=1.0)
+    dead_zone_x: float = Field(default=0.08, ge=0.0, le=0.5)
+    dead_zone_y: float = Field(default=0.10, ge=0.0, le=0.5)
+    center_weight: float = Field(default=0.45, ge=0.0, le=1.0)
+    confidence_weight: float = Field(default=0.35, ge=0.0, le=1.0)
+    size_weight: float = Field(default=0.20, ge=0.0, le=1.0)
+
+    @model_validator(mode="after")
+    def validate_weights(self) -> "TrackingConfig":
+        if self.center_weight + self.confidence_weight + self.size_weight <= 0.0:
+            raise ValueError("at least one tracking selection weight must be greater than zero")
+        return self
+
+
 class WebConfig(BaseModel):
     host: str = "127.0.0.1"
     port: int = Field(default=8000, ge=1, le=65535)
@@ -84,6 +103,7 @@ class Settings(BaseModel):
     application: ApplicationConfig
     hardware: HardwareConfig
     camera: CameraConfig = Field(default_factory=CameraConfig)
+    tracking: TrackingConfig = Field(default_factory=TrackingConfig)
     web: WebConfig
     logging: LoggingConfig
     safety: SafetyConfig
@@ -101,6 +121,7 @@ def load_settings(config_file: str | Path | None = None) -> Settings:
 
     hardware = raw.setdefault("hardware", {})
     camera = raw.setdefault("camera", {})
+    tracking = raw.setdefault("tracking", {})
 
     if value := os.getenv("HARDWARE_MODE"):
         hardware["mode"] = value
@@ -112,5 +133,7 @@ def load_settings(config_file: str | Path | None = None) -> Settings:
         camera["mode"] = value
     if value := os.getenv("IMX500_MODEL_PATH"):
         camera["model_path"] = value
+    if value := os.getenv("TRACKING_ENABLED"):
+        tracking["enabled"] = value.lower() in {"1", "true", "yes", "on"}
 
     return Settings.model_validate(raw)
