@@ -100,6 +100,34 @@ class AudioConfig(BaseModel):
     orientation_calibrated: bool = False
 
 
+class ActiveSpeakerConfig(BaseModel):
+    enabled: bool = True
+    poll_interval_ms: int = Field(default=100, ge=50, le=2000)
+    geometry_calibrated: bool = False
+    camera_horizontal_fov_degrees: float = Field(default=70.0, gt=10.0, le=170.0)
+    doa_inverted: bool = False
+    outside_fov_margin_degrees: float = Field(default=5.0, ge=0.0, le=45.0)
+    max_match_error_degrees: float = Field(default=18.0, gt=0.0, le=90.0)
+    minimum_candidate_score: float = Field(default=0.45, ge=0.0, le=1.0)
+    continuity_distance_ratio: float = Field(default=0.20, gt=0.0, le=1.0)
+    audio_alignment_weight: float = Field(default=0.65, ge=0.0, le=1.0)
+    detection_confidence_weight: float = Field(default=0.20, ge=0.0, le=1.0)
+    size_weight: float = Field(default=0.05, ge=0.0, le=1.0)
+    continuity_weight: float = Field(default=0.10, ge=0.0, le=1.0)
+
+    @model_validator(mode="after")
+    def validate_weights(self) -> "ActiveSpeakerConfig":
+        total = (
+            self.audio_alignment_weight
+            + self.detection_confidence_weight
+            + self.size_weight
+            + self.continuity_weight
+        )
+        if total <= 0.0:
+            raise ValueError("at least one active-speaker fusion weight must be greater than zero")
+        return self
+
+
 class WebConfig(BaseModel):
     host: str = "127.0.0.1"
     port: int = Field(default=8000, ge=1, le=65535)
@@ -129,6 +157,7 @@ class Settings(BaseModel):
     tracking: TrackingConfig = Field(default_factory=TrackingConfig)
     pan_tilt_control: PanTiltControlConfig = Field(default_factory=PanTiltControlConfig)
     audio: AudioConfig = Field(default_factory=AudioConfig)
+    active_speaker: ActiveSpeakerConfig = Field(default_factory=ActiveSpeakerConfig)
     web: WebConfig
     logging: LoggingConfig
     safety: SafetyConfig
@@ -149,6 +178,7 @@ def load_settings(config_file: str | Path | None = None) -> Settings:
     tracking = raw.setdefault("tracking", {})
     pan_tilt_control = raw.setdefault("pan_tilt_control", {})
     audio = raw.setdefault("audio", {})
+    active_speaker = raw.setdefault("active_speaker", {})
 
     if value := os.getenv("HARDWARE_MODE"):
         hardware["mode"] = value
@@ -168,5 +198,16 @@ def load_settings(config_file: str | Path | None = None) -> Settings:
         audio["mode"] = value
     if value := os.getenv("AUDIO_ENABLED"):
         audio["enabled"] = value.lower() in {"1", "true", "yes", "on"}
+    if value := os.getenv("ACTIVE_SPEAKER_ENABLED"):
+        active_speaker["enabled"] = value.lower() in {"1", "true", "yes", "on"}
+    if value := os.getenv("ACTIVE_SPEAKER_GEOMETRY_CALIBRATED"):
+        active_speaker["geometry_calibrated"] = value.lower() in {
+            "1",
+            "true",
+            "yes",
+            "on",
+        }
+    if value := os.getenv("CAMERA_HORIZONTAL_FOV_DEGREES"):
+        active_speaker["camera_horizontal_fov_degrees"] = float(value)
 
     return Settings.model_validate(raw)
