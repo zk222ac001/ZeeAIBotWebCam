@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Guarded, manual-only actuator validation for Phase 2.
+"""Guarded, manual-only actuator validation for TurboPi hardware.
 
 This script never performs autonomous movement. It requires an explicit
---confirm-motion flag and is intended for bench testing with wheels lifted.
+--confirm-motion flag and is intended for bench testing only.
 """
 from __future__ import annotations
 
@@ -44,9 +44,9 @@ def motor_test(args: argparse.Namespace) -> None:
     if args.id not in {1, 2, 3, 4}:
         raise SystemExit("Motor ID must be 1, 2, 3 or 4")
     if abs(args.duty) > 20:
-        raise SystemExit("Phase 2 limits motor duty to +/-20")
+        raise SystemExit("Motor test limits duty to +/-20")
     if not 0.05 <= args.duration <= 0.5:
-        raise SystemExit("Phase 2 limits duration to 0.05..0.5 seconds")
+        raise SystemExit("Motor test limits duration to 0.05..0.5 seconds")
 
     print("SAFETY CHECK: all wheels must be lifted clear of the work surface.")
     print(f"Testing motor {args.id}: duty={args.duty}, duration={args.duration}s")
@@ -69,10 +69,10 @@ def motor_test(args: argparse.Namespace) -> None:
 
 def servo_test(args: argparse.Namespace) -> None:
     require_confirmation(args)
-    if args.id not in {1, 2}:
-        raise SystemExit("Phase 2 PWM servo ID must be 1 or 2")
+    if args.id not in {1, 2, 3, 4}:
+        raise SystemExit("PWM servo ID must be 1, 2, 3 or 4")
     if not 1350 <= args.pulse <= 1650:
-        raise SystemExit("Phase 2 initially restricts servo pulse to 1350..1650")
+        raise SystemExit("Calibration test restricts servo pulse to 1350..1650")
 
     print("SAFETY CHECK: camera ribbon and mechanical mount must be clear through servo motion.")
     print(f"Testing PWM servo {args.id}: pulse={args.pulse}")
@@ -84,11 +84,11 @@ def servo_test(args: argparse.Namespace) -> None:
         port = getattr(board, "port", None)
         if port is not None and getattr(port, "is_open", False):
             port.close()
-    print("Servo command complete. Record actual axis, centre and mechanical behaviour.")
+    print("Servo command complete. Record actual axis, direction and mechanical behaviour.")
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Guarded Phase 2 actuator tests")
+    parser = argparse.ArgumentParser(description="Guarded TurboPi actuator tests")
     sub = parser.add_subparsers(dest="command", required=True)
 
     motor = sub.add_parser("motor")
