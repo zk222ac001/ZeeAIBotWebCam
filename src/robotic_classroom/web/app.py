@@ -34,6 +34,8 @@ class LeaseResponse(BaseModel):
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    app.state.settings = settings
+
     hardware = create_hardware_service(settings)
     hardware.start()
     supervisor = SafetySupervisor(settings, hardware)
@@ -120,7 +122,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="ZeeAIBotWebCam",
-    version="0.8.0",
+    version="0.9.0",
     description="AI-powered robotic classroom telepresence platform.",
     lifespan=lifespan,
 )
@@ -183,6 +185,8 @@ def health() -> dict[str, object]:
             "enabled": settings.conference.enabled,
             "publish_video": settings.conference.publish_video,
             "publish_audio": settings.conference.publish_audio,
+            "auth_required": settings.conference.auth_required,
+            "remote_audio_playback": settings.conference.remote_audio_playback,
             "message": app.state.conference_start_error,
         },
         "robot_state": app.state.safety.state.state.value,
