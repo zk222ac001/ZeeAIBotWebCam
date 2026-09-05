@@ -29,8 +29,19 @@ class AxisConfig(BaseModel):
 
 class PanTiltConfig(BaseModel):
     enabled: bool = False
+    calibration_validated: bool = False
     pan: AxisConfig = Field(default_factory=AxisConfig)
     tilt: AxisConfig = Field(default_factory=AxisConfig)
+
+    @model_validator(mode="after")
+    def validate_calibration(self) -> PanTiltConfig:
+        if not self.calibration_validated:
+            return self
+        if self.pan.channel is None or self.tilt.channel is None:
+            raise ValueError("validated pan/tilt calibration requires both servo channels")
+        if self.pan.channel == self.tilt.channel:
+            raise ValueError("pan and tilt must use different PWM servo channels")
+        return self
 
 
 class HardwareConfig(BaseModel):
@@ -79,7 +90,7 @@ class TrackingConfig(BaseModel):
 
 class PanTiltControlConfig(BaseModel):
     enabled: bool = True
-    mode: Literal["plan_only"] = "plan_only"
+    mode: Literal["plan_only", "execute"] = "plan_only"
     poll_interval_ms: int = Field(default=50, ge=20, le=1000)
     pan_gain_us: float = Field(default=400.0, ge=0.0, le=2000.0)
     tilt_gain_us: float = Field(default=300.0, ge=0.0, le=2000.0)
@@ -215,6 +226,7 @@ def load_settings(config_file: str | Path | None = None) -> Settings:
         raw = yaml.safe_load(handle) or {}
 
     hardware = raw.setdefault("hardware", {})
+    pan_tilt = hardware.setdefault("pan_tilt", {})
     camera = raw.setdefault("camera", {})
     tracking = raw.setdefault("tracking", {})
     pan_tilt_control = raw.setdefault("pan_tilt_control", {})
@@ -228,6 +240,10 @@ def load_settings(config_file: str | Path | None = None) -> Settings:
         hardware["vendor_path"] = value
     if value := os.getenv("TURBOPI_SERIAL_DEVICE"):
         hardware["serial_device"] = value
+    if value := os.getenv("PAN_TILT_HARDWARE_ENABLED"):
+        pan_tilt["enabled"] = value.lower() in {"1", "true", "yes", "on"}
+    if value := os.getenv("PAN_TILT_CALIBRATION_VALIDATED"):
+        pan_tilt["calibration_validated"] = value.lower() in {"1", "true", "yes", "on"}
     if value := os.getenv("CAMERA_MODE"):
         camera["mode"] = value
     if value := os.getenv("IMX500_MODEL_PATH"):
@@ -236,6 +252,8 @@ def load_settings(config_file: str | Path | None = None) -> Settings:
         tracking["enabled"] = value.lower() in {"1", "true", "yes", "on"}
     if value := os.getenv("PAN_TILT_CONTROL_ENABLED"):
         pan_tilt_control["enabled"] = value.lower() in {"1", "true", "yes", "on"}
+    if value := os.getenv("PAN_TILT_CONTROL_MODE"):
+        pan_tilt_control["mode"] = value
     if value := os.getenv("AUDIO_MODE"):
         audio["mode"] = value
     if value := os.getenv("AUDIO_ENABLED"):
