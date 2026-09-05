@@ -35,7 +35,6 @@ class LeaseResponse(BaseModel):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     app.state.settings = settings
-
     hardware = create_hardware_service(settings)
     hardware.start()
     supervisor = SafetySupervisor(settings, hardware)
@@ -59,6 +58,8 @@ async def lifespan(app: FastAPI):
         settings.pan_tilt_control,
         settings.hardware.pan_tilt.pan,
         settings.hardware.pan_tilt.tilt,
+        hardware=hardware,
+        calibration=settings.hardware.pan_tilt,
     )
     pan_tilt.start()
 
@@ -122,7 +123,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="ZeeAIBotWebCam",
-    version="0.9.0",
+    version="1.0.0",
     description="AI-powered robotic classroom telepresence platform.",
     lifespan=lifespan,
 )
@@ -135,6 +136,7 @@ def health() -> dict[str, object]:
     camera_status = app.state.camera.status()
     tracking_status = app.state.tracking.observation()
     pan_tilt_plan = app.state.pan_tilt.plan()
+    pan_tilt_execution = app.state.pan_tilt.execution_status()
     audio_status = app.state.audio.observation()
     active_speaker_status = app.state.active_speaker.observation()
     return {
@@ -162,7 +164,9 @@ def health() -> dict[str, object]:
         "pan_tilt": {
             "state": pan_tilt_plan.state.value,
             "mode": settings.pan_tilt_control.mode,
-            "apply_to_hardware": pan_tilt_plan.apply_to_hardware,
+            "apply_to_hardware": bool(pan_tilt_execution and pan_tilt_execution.executed),
+            "calibration_validated": settings.hardware.pan_tilt.calibration_validated,
+            "hardware_enabled": settings.hardware.pan_tilt.enabled,
         },
         "audio": {
             "backend": audio_status.backend,
@@ -282,12 +286,15 @@ def tracking_status() -> dict[str, object]:
 @app.get("/api/pan-tilt/plan")
 def pan_tilt_plan() -> dict[str, object]:
     plan = app.state.pan_tilt.plan()
+    execution = app.state.pan_tilt.execution_status()
     return {
         "state": plan.state.value,
         "sequence": plan.sequence,
         "target_id": plan.target_id,
         "mode": settings.pan_tilt_control.mode,
-        "apply_to_hardware": plan.apply_to_hardware,
+        "apply_to_hardware": bool(execution and execution.executed),
+        "calibration_validated": settings.hardware.pan_tilt.calibration_validated,
+        "hardware_enabled": settings.hardware.pan_tilt.enabled,
         "pan": {
             "desired_pulse": plan.pan.desired_pulse,
             "planned_pulse": plan.pan.planned_pulse,
@@ -304,6 +311,17 @@ def pan_tilt_plan() -> dict[str, object]:
             "maximum": plan.tilt.maximum,
             "inverted": plan.tilt.inverted,
         },
+        "execution": (
+            {
+                "requested": execution.requested,
+                "executed": execution.executed,
+                "last_pan_pulse": execution.last_pan_pulse,
+                "last_tilt_pulse": execution.last_tilt_pulse,
+                "last_error": execution.last_error,
+            }
+            if execution is not None
+            else None
+        ),
         "message": plan.message,
     }
 
@@ -368,7 +386,6 @@ def acquire_control_lease(request: LeaseRequest) -> LeaseResponse:
         lease = app.state.safety.leases.acquire(request.owner)
     except RuntimeError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
-
     return LeaseResponse(
         token=lease.token,
         owner=lease.owner,
