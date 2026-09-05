@@ -139,9 +139,23 @@ class ConferenceConfig(BaseModel):
     publish_audio: bool = False
     audio_input_device: str = "default"
     allow_remote_audio: bool = True
+    remote_audio_playback: bool = False
+    audio_output_device: str = "default"
+    probe_media_devices: bool = True
+    auth_required: bool = False
+    access_token: str | None = Field(default=None, min_length=16, repr=False, exclude=True)
+    operator_poll_interval_ms: int = Field(default=2000, ge=500, le=10000)
     ice_servers: list[str] = Field(default_factory=list)
     ice_username: str | None = None
     ice_credential: str | None = None
+
+    @model_validator(mode="after")
+    def validate_security(self) -> ConferenceConfig:
+        if self.auth_required and self.access_token is None:
+            raise ValueError(
+                "conference authentication requires CONFERENCE_ACCESS_TOKEN (minimum 16 characters)"
+            )
+        return self
 
 
 class WebConfig(BaseModel):
@@ -235,6 +249,14 @@ def load_settings(config_file: str | Path | None = None) -> Settings:
         conference["publish_audio"] = value.lower() in {"1", "true", "yes", "on"}
     if value := os.getenv("CONFERENCE_AUDIO_INPUT_DEVICE"):
         conference["audio_input_device"] = value
+    if value := os.getenv("CONFERENCE_REMOTE_AUDIO_PLAYBACK"):
+        conference["remote_audio_playback"] = value.lower() in {"1", "true", "yes", "on"}
+    if value := os.getenv("CONFERENCE_AUDIO_OUTPUT_DEVICE"):
+        conference["audio_output_device"] = value
+    if value := os.getenv("CONFERENCE_AUTH_REQUIRED"):
+        conference["auth_required"] = value.lower() in {"1", "true", "yes", "on"}
+    if value := os.getenv("CONFERENCE_ACCESS_TOKEN"):
+        conference["access_token"] = value
     if value := os.getenv("WEBRTC_ICE_SERVERS"):
         conference["ice_servers"] = [item.strip() for item in value.split(",") if item.strip()]
     if value := os.getenv("WEBRTC_ICE_USERNAME"):
