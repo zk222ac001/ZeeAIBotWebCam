@@ -11,6 +11,7 @@ hardware:
   motor_mapping_validated: false
   pan_tilt:
     enabled: false
+    calibration_validated: false
     pan:
       channel: null
       center: 1500
