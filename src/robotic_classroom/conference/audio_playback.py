@@ -58,7 +58,7 @@ class RemoteAudioPlayback:
 
         channels = str(self.config.remote_audio_channels)
         rate = str(self.config.remote_audio_sample_rate)
-        self._process = subprocess.Popen(  # noqa: S603 - fixed executable and controlled arguments
+        self._process = subprocess.Popen(
             [
                 "aplay",
                 "-q",
