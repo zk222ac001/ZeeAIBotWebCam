@@ -8,6 +8,7 @@ from typing import Any
 from uuid import uuid4
 
 from robotic_classroom.camera.service import CameraService
+from robotic_classroom.conference.audio_playback import RemoteAudioPlayback
 from robotic_classroom.conference.models import (
     ConferenceAnswer,
     ConferenceSession,
@@ -26,14 +27,11 @@ class _RuntimeSession:
     last_activity_monotonic: float
     media_player: Any | None = None
     remote_tasks: list[asyncio.Task[None]] | None = None
+    playback: RemoteAudioPlayback | None = None
 
 
 class AiortcConferenceBackend:
-    """Optional real WebRTC backend.
-
-    Imports are lazy so normal mock-mode development and CI do not require aiortc.
-    The backend never opens the physical camera: it publishes frames from CameraService.
-    """
+    """Optional real WebRTC backend using shared camera and validated ALSA audio."""
 
     def __init__(
         self,
@@ -60,6 +58,23 @@ class AiortcConferenceBackend:
                 'Conference mode "aiortc" requires the optional WebRTC dependencies. '
                 'Install with: pip install -e ".[webrtc]"'
             ) from exc
+
+        if self.config.publish_audio and not self.config.audio_input_validated:
+            raise RuntimeError(
+                "Pi microphone publishing is enabled but the configured ALSA input is not validated"
+            )
+        if self.config.remote_audio_playback and not self.config.audio_output_validated:
+            raise RuntimeError(
+                "Remote speaker playback is enabled but the configured ALSA output is not validated"
+            )
+        if (
+            self.config.echo_management_mode == "aec_reference"
+            and not self.config.echo_reference_validated
+        ):
+            raise RuntimeError(
+                "AEC reference mode is enabled but the echo-reference path is not validated"
+            )
+
         self._running = True
 
     def _rtc_configuration(self) -> Any:
@@ -117,13 +132,6 @@ class AiortcConferenceBackend:
 
         return CameraServiceVideoTrack()
 
-    async def _consume_remote_track(self, track: Any) -> None:
-        try:
-            while True:
-                await track.recv()
-        except Exception:  # noqa: BLE001 - peer track shutdown may raise transport-specific errors
-            return
-
     async def _wait_for_ice_complete(self, pc: Any) -> None:
         deadline = monotonic() + self.config.ice_gathering_timeout_seconds
         while pc.iceGatheringState != "complete" and monotonic() < deadline:
@@ -166,9 +174,17 @@ class AiortcConferenceBackend:
         @pc.on("track")
         def on_track(track: Any) -> None:
             runtime.last_activity_monotonic = monotonic()
-            if track.kind == "audio" and self.config.allow_remote_audio:
-                assert runtime.remote_tasks is not None
-                runtime.remote_tasks.append(asyncio.create_task(self._consume_remote_track(track)))
+            if track.kind != "audio" or not self.config.allow_remote_audio:
+                return
+
+            assert runtime.remote_tasks is not None
+            playback = RemoteAudioPlayback(self.config)
+            runtime.playback = playback
+            if playback.active:
+                task = asyncio.create_task(playback.render(track))
+            else:
+                task = asyncio.create_task(playback.drain(track))
+            runtime.remote_tasks.append(task)
 
         try:
             await pc.setRemoteDescription(RTCSessionDescription(sdp=offer.sdp, type=offer.type))
@@ -201,9 +217,10 @@ class AiortcConferenceBackend:
                 description=SessionDescription(type=local.type, sdp=local.sdp),
             )
         except Exception:
+            if runtime.playback is not None:
+                runtime.playback.stop()
             await pc.close()
-            if runtime.media_player is not None:
-                runtime.media_player = None
+            runtime.media_player = None
             raise
 
     async def close_session(self, session_id: str) -> bool:
@@ -216,6 +233,8 @@ class AiortcConferenceBackend:
             for task in runtime.remote_tasks:
                 task.cancel()
             await asyncio.gather(*runtime.remote_tasks, return_exceptions=True)
+        if runtime.playback is not None:
+            runtime.playback.stop()
         await runtime.peer_connection.close()
         runtime.media_player = None
         return True
@@ -248,6 +267,44 @@ class AiortcConferenceBackend:
             sessions=sessions,
             message="aiortc WebRTC conference backend",
         )
+
+    def audio_pipeline_status(self) -> dict[str, object]:
+        playback_running = False
+        playback_frames = 0
+        playback_error = ""
+        for runtime in self._sessions.values():
+            if runtime.playback is None:
+                continue
+            status = runtime.playback.status()
+            playback_running = playback_running or status.running
+            playback_frames += status.frames_written
+            playback_error = playback_error or status.last_error
+
+        return {
+            "microphone_publish_enabled": self.config.publish_audio,
+            "microphone_input_validated": self.config.audio_input_validated,
+            "microphone_device": self.config.audio_input_device,
+            "remote_audio_allowed": self.config.allow_remote_audio,
+            "speaker_playback_enabled": self.config.remote_audio_playback,
+            "speaker_output_validated": self.config.audio_output_validated,
+            "speaker_device": self.config.audio_output_device,
+            "speaker_playback_running": playback_running,
+            "speaker_frames_written": playback_frames,
+            "speaker_last_error": playback_error,
+            "echo_management_mode": self.config.echo_management_mode,
+            "echo_reference_validated": self.config.echo_reference_validated,
+            "full_duplex_requested": bool(
+                self.config.publish_audio and self.config.remote_audio_playback
+            ),
+            "full_duplex_validated": bool(
+                self.config.audio_input_validated
+                and self.config.audio_output_validated
+                and (
+                    self.config.echo_management_mode != "aec_reference"
+                    or self.config.echo_reference_validated
+                )
+            ),
+        }
 
     def _session_model(self, runtime: _RuntimeSession) -> ConferenceSession:
         pc = runtime.peer_connection
