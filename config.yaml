@@ -92,11 +92,21 @@ conference:
   session_timeout_seconds: 1800
   ice_gathering_timeout_seconds: 5.0
   publish_video: true
+
   publish_audio: false
   audio_input_device: default
+  audio_input_validated: false
+
   allow_remote_audio: true
   remote_audio_playback: false
   audio_output_device: default
+  audio_output_validated: false
+  remote_audio_sample_rate: 48000
+  remote_audio_channels: 1
+
+  echo_management_mode: monitor
+  echo_reference_validated: false
+
   probe_media_devices: true
   auth_required: false
   access_token: null
