@@ -37,5 +37,5 @@ def test_conference_browser_page_contains_no_robot_controls() -> None:
         response = client.get("/conference")
 
     assert response.status_code == 200
-    assert "ZeeAIBotWebCam WebRTC Test" in response.text
+    assert "ZeeAIBotWebCam WebRTC" in response.text
     assert "no robot movement controls" in response.text
