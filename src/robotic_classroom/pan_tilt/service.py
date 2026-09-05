@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import threading
 
-from robotic_classroom.core.config import AxisConfig, PanTiltControlConfig, PanTiltConfig
+from robotic_classroom.core.config import AxisConfig, PanTiltConfig, PanTiltControlConfig
 from robotic_classroom.hardware.interface import HardwareService
 from robotic_classroom.pan_tilt.controller import PanTiltController
 from robotic_classroom.pan_tilt.executor import PanTiltExecutionStatus, PanTiltExecutor
