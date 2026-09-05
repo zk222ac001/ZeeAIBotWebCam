@@ -101,7 +101,7 @@ class RemoteAudioPlayback:
                 frame = await track.recv()
                 converted = resampler.resample(frame)
                 for output in converted:
-                    payload = output.planes[0].to_bytes()
+                    payload = bytes(output.planes[0])
                     await asyncio.to_thread(self._process.stdin.write, payload)
                     await asyncio.to_thread(self._process.stdin.flush)
                     self._frames_written += 1
