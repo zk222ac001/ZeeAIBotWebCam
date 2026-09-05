@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from robotic_classroom.core.config import PanTiltControlConfig, PanTiltConfig
+from robotic_classroom.core.config import PanTiltConfig, PanTiltControlConfig
 from robotic_classroom.hardware.interface import HardwareService
 from robotic_classroom.pan_tilt.models import PanTiltPlan
 
