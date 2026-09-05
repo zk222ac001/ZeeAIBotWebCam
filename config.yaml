@@ -95,6 +95,12 @@ conference:
   publish_audio: false
   audio_input_device: default
   allow_remote_audio: true
+  remote_audio_playback: false
+  audio_output_device: default
+  probe_media_devices: true
+  auth_required: false
+  access_token: null
+  operator_poll_interval_ms: 2000
   ice_servers: []
   ice_username: null
   ice_credential: null
