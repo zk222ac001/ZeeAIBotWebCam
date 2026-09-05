@@ -136,11 +136,21 @@ class ConferenceConfig(BaseModel):
     session_timeout_seconds: int = Field(default=1800, ge=60, le=86400)
     ice_gathering_timeout_seconds: float = Field(default=5.0, ge=1.0, le=30.0)
     publish_video: bool = True
+
     publish_audio: bool = False
     audio_input_device: str = "default"
+    audio_input_validated: bool = False
+
     allow_remote_audio: bool = True
     remote_audio_playback: bool = False
     audio_output_device: str = "default"
+    audio_output_validated: bool = False
+    remote_audio_sample_rate: int = Field(default=48000, ge=8000, le=96000)
+    remote_audio_channels: Literal[1, 2] = 1
+
+    echo_management_mode: Literal["off", "monitor", "aec_reference"] = "monitor"
+    echo_reference_validated: bool = False
+
     probe_media_devices: bool = True
     auth_required: bool = False
     access_token: str | None = Field(default=None, min_length=16, repr=False, exclude=True)
@@ -249,10 +259,18 @@ def load_settings(config_file: str | Path | None = None) -> Settings:
         conference["publish_audio"] = value.lower() in {"1", "true", "yes", "on"}
     if value := os.getenv("CONFERENCE_AUDIO_INPUT_DEVICE"):
         conference["audio_input_device"] = value
+    if value := os.getenv("CONFERENCE_AUDIO_INPUT_VALIDATED"):
+        conference["audio_input_validated"] = value.lower() in {"1", "true", "yes", "on"}
     if value := os.getenv("CONFERENCE_REMOTE_AUDIO_PLAYBACK"):
         conference["remote_audio_playback"] = value.lower() in {"1", "true", "yes", "on"}
     if value := os.getenv("CONFERENCE_AUDIO_OUTPUT_DEVICE"):
         conference["audio_output_device"] = value
+    if value := os.getenv("CONFERENCE_AUDIO_OUTPUT_VALIDATED"):
+        conference["audio_output_validated"] = value.lower() in {"1", "true", "yes", "on"}
+    if value := os.getenv("CONFERENCE_ECHO_MANAGEMENT_MODE"):
+        conference["echo_management_mode"] = value
+    if value := os.getenv("CONFERENCE_ECHO_REFERENCE_VALIDATED"):
+        conference["echo_reference_validated"] = value.lower() in {"1", "true", "yes", "on"}
     if value := os.getenv("CONFERENCE_AUTH_REQUIRED"):
         conference["auth_required"] = value.lower() in {"1", "true", "yes", "on"}
     if value := os.getenv("CONFERENCE_ACCESS_TOKEN"):
