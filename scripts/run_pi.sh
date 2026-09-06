@@ -8,6 +8,22 @@ if [ -f .venv/bin/activate ]; then
   . .venv/bin/activate
 fi
 
+# Stop only stale instances of this project before opening the camera/UART again.
+# Duplicate app instances can lock both the IMX500 camera and /dev/ttyAMA0.
+OLD_PIDS="$(pgrep -f 'python(3)? -m robotic_classroom\.main' || true)"
+if [ -n "$OLD_PIDS" ]; then
+  printf '%s\n' "Stopping previous ZeeAIBotWebCam process(es): $OLD_PIDS"
+  kill $OLD_PIDS 2>/dev/null || true
+  sleep 2
+fi
+
+# Refuse to continue if another process still owns the application port.
+if command -v ss >/dev/null 2>&1 && ss -ltnp 2>/dev/null | grep -q ':8000 '; then
+  printf '%s\n' 'Port 8000 is still in use. Stop the process shown below before starting:'
+  ss -ltnp 2>/dev/null | grep ':8000 ' || true
+  exit 1
+fi
+
 # Clear stale overrides from earlier development/testing sessions.
 unset HARDWARE_MODE
 unset CAMERA_MODE
