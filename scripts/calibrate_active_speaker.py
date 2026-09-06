@@ -11,8 +11,8 @@ SAMPLES = 30
 INTERVAL = 0.12
 
 
-def get_operator_status() -> dict:
-    with urllib.request.urlopen(BASE + "/api/operator/status", timeout=2) as response:
+def get_audio_status() -> dict:
+    with urllib.request.urlopen(BASE + "/api/audio/status", timeout=2) as response:
         return json.loads(response.read().decode("utf-8"))
 
 
@@ -39,8 +39,7 @@ def collect(label: str) -> float | None:
     raw_seen: list[float] = []
 
     for _ in range(SAMPLES):
-        status = get_operator_status()
-        audio = status.get("audio") or {}
+        audio = get_audio_status()
         doa_raw = audio.get("doa_degrees_raw")
         speech_state = audio.get("speech_state")
 
@@ -70,12 +69,11 @@ def main() -> None:
     print("Use wide left/right positions, about 45-60 degrees from center.\n")
 
     try:
-        status = get_operator_status()
+        audio = get_audio_status()
     except (urllib.error.URLError, TimeoutError) as exc:
         print(f"FAIL: cannot reach {BASE}: {exc}")
         return
 
-    audio = status.get("audio") or {}
     if not audio.get("connected"):
         print("FAIL: ReSpeaker audio service is not connected.")
         print("audio status:", audio)
