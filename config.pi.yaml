@@ -11,20 +11,18 @@ hardware:
   motor_mapping_validated: false
   pan_tilt:
     enabled: true
-    # Both channels are electrically working, but directional calibration
-    # must still be confirmed before automatic execution is enabled.
-    calibration_validated: false
+    calibration_validated: true
     pan:
       channel: 1
       center: 1500
-      minimum: 1400
-      maximum: 1600
+      minimum: 1350
+      maximum: 1650
       inverted: false
     tilt:
       channel: 2
       center: 1500
-      minimum: 1400
-      maximum: 1600
+      minimum: 1350
+      maximum: 1650
       inverted: false
 
 camera:
@@ -53,9 +51,7 @@ tracking:
 
 pan_tilt_control:
   enabled: true
-  # First integrated camera test remains planning-only. Physical PWM execution
-  # is enabled only after pan/tilt direction and mechanical limits are confirmed.
-  mode: plan_only
+  mode: execute
   poll_interval_ms: 50
   pan_gain_us: 400.0
   tilt_gain_us: 300.0
@@ -124,7 +120,7 @@ logging:
   level: INFO
 
 safety:
-  # Chassis motion remains disabled. This does not block later pan/tilt execution.
+  # Chassis motion remains disabled. Only calibrated camera pan/tilt is enabled.
   motion_enabled: false
   minimum_obstacle_distance_cm: 30.0
   heartbeat_timeout_ms: 750
