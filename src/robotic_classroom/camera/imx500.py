@@ -12,14 +12,23 @@ from robotic_classroom.camera.models import (
     PersonDetection,
 )
 
+COCO_LABELS = [
+    "person", "bicycle", "car", "motorcycle", "airplane", "bus", "train", "truck", "boat",
+    "traffic light", "fire hydrant", "-", "stop sign", "parking meter", "bench", "bird", "cat",
+    "dog", "horse", "sheep", "cow", "elephant", "bear", "zebra", "giraffe", "-", "backpack",
+    "umbrella", "-", "-", "handbag", "tie", "suitcase", "frisbee", "skis", "snowboard",
+    "sports ball", "kite", "baseball bat", "baseball glove", "skateboard", "surfboard",
+    "tennis racket", "bottle", "-", "wine glass", "cup", "fork", "knife", "spoon", "bowl",
+    "banana", "apple", "sandwich", "orange", "broccoli", "carrot", "hot dog", "pizza", "donut",
+    "cake", "chair", "couch", "potted plant", "bed", "-", "dining table", "-", "-", "toilet",
+    "-", "tv", "laptop", "mouse", "remote", "keyboard", "cell phone", "microwave", "oven",
+    "toaster", "sink", "refrigerator", "-", "book", "clock", "vase", "scissors", "teddy bear",
+    "hair drier", "toothbrush",
+]
+
 
 class IMX500Camera:
-    """Single-owner Raspberry Pi AI Camera backend.
-
-    Picamera2/IMX500 imports are lazy so this module can exist on Windows and CI.
-    The backend owns the camera for its entire lifetime and exposes only snapshots
-    and JPEGs to the rest of the application.
-    """
+    """Single-owner Raspberry Pi AI Camera backend."""
 
     def __init__(
         self,
@@ -66,47 +75,48 @@ class IMX500Camera:
 
         import cv2
         from picamera2 import Picamera2
-        from picamera2.devices.imx500 import IMX500
+        from picamera2.devices.imx500 import IMX500, NetworkIntrinsics
 
         self._cv2 = cv2
         self._imx500 = IMX500(str(self.model_path))
-        self._intrinsics = self._imx500.network_intrinsics
-        self._picam2 = Picamera2(self._imx500.camera_num)
+        intrinsics = self._imx500.network_intrinsics
+        if not intrinsics:
+            intrinsics = NetworkIntrinsics()
+            intrinsics.task = "object detection"
+        elif intrinsics.task != "object detection":
+            raise RuntimeError(f"IMX500 model is not object detection: {intrinsics.task}")
 
-        config = self._picam2.create_video_configuration(
+        if intrinsics.labels is None:
+            intrinsics.labels = list(COCO_LABELS)
+        intrinsics.update_with_defaults()
+        self._intrinsics = intrinsics
+
+        self._picam2 = Picamera2(self._imx500.camera_num)
+        config = self._picam2.create_preview_configuration(
             main={"size": (self.width, self.height), "format": "RGB888"},
             controls={"FrameRate": self.frame_rate},
-            buffer_count=6,
+            buffer_count=12,
         )
         self._picam2.configure(config)
         self._picam2.start()
+
+        if getattr(intrinsics, "preserve_aspect_ratio", False):
+            self._imx500.set_auto_aspect_ratio()
 
         self._stop_event.clear()
         self._thread = threading.Thread(target=self._capture_loop, daemon=True, name="imx500-camera")
         self._thread.start()
 
     def _labels(self) -> list[str]:
-        labels = getattr(self._intrinsics, "labels", None) or []
+        labels = getattr(self._intrinsics, "labels", None) or COCO_LABELS
         if getattr(self._intrinsics, "ignore_dash_labels", False):
             labels = [label for label in labels if label and label != "-"]
         return list(labels)
 
     def _is_person_category(self, category_index: int, labels: list[str]) -> tuple[bool, str]:
-        """Resolve the configured person class robustly.
-
-        Some IMX500 model packages expose COCO labels through network intrinsics,
-        while others can return an empty label list. The SSD MobileNetV2 FPNLite
-        model used by this project has the person class at index 0, so retain that
-        as a narrow fallback only when labels are unavailable and the configured
-        target label is ``person``.
-        """
         if 0 <= category_index < len(labels):
             label = str(labels[category_index]).strip()
             return label.casefold() == self.person_label.casefold(), label
-
-        if not labels and self.person_label.casefold() == "person" and category_index == 0:
-            return True, "person"
-
         return False, str(category_index)
 
     def _parse_people(self, metadata: dict[str, Any]) -> tuple[PersonDetection, ...]:
@@ -187,7 +197,7 @@ class IMX500Camera:
                     self._latest_jpeg = encoded.tobytes()
                     self._latest_snapshot = snapshot
                     self._last_error = ""
-            except Exception as exc:  # noqa: BLE001 - worker must surface arbitrary camera faults
+            except Exception as exc:  # noqa: BLE001
                 with self._lock:
                     self._last_error = str(exc)
                     self._latest_snapshot = CameraSnapshot(
