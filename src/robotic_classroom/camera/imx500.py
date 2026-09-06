@@ -91,6 +91,24 @@ class IMX500Camera:
             labels = [label for label in labels if label and label != "-"]
         return list(labels)
 
+    def _is_person_category(self, category_index: int, labels: list[str]) -> tuple[bool, str]:
+        """Resolve the configured person class robustly.
+
+        Some IMX500 model packages expose COCO labels through network intrinsics,
+        while others can return an empty label list. The SSD MobileNetV2 FPNLite
+        model used by this project has the person class at index 0, so retain that
+        as a narrow fallback only when labels are unavailable and the configured
+        target label is ``person``.
+        """
+        if 0 <= category_index < len(labels):
+            label = str(labels[category_index]).strip()
+            return label.casefold() == self.person_label.casefold(), label
+
+        if not labels and self.person_label.casefold() == "person" and category_index == 0:
+            return True, "person"
+
+        return False, str(category_index)
+
     def _parse_people(self, metadata: dict[str, Any]) -> tuple[PersonDetection, ...]:
         assert self._imx500 is not None
         assert self._picam2 is not None
@@ -112,8 +130,8 @@ class IMX500Camera:
         for box, score, category in zip(boxes, scores, classes):
             confidence = float(score)
             category_index = int(category)
-            label = labels[category_index] if 0 <= category_index < len(labels) else str(category_index)
-            if confidence < self.confidence_threshold or label != self.person_label:
+            is_person, label = self._is_person_category(category_index, labels)
+            if confidence < self.confidence_threshold or not is_person:
                 continue
 
             coords = tuple(float(v) for v in box)
