@@ -101,7 +101,9 @@ class RemoteAudioPlayback:
                 frame = await track.recv()
                 converted = resampler.resample(frame)
                 for output in converted:
-                    payload = bytes(output.planes[0])
+                    # PyAV planes may include alignment padding beyond the audio samples.
+                    sample_bytes = output.samples * len(output.layout.channels) * 2
+                    payload = bytes(output.planes[0])[:sample_bytes]
                     await asyncio.to_thread(self._process.stdin.write, payload)
                     await asyncio.to_thread(self._process.stdin.flush)
                     self._frames_written += 1
