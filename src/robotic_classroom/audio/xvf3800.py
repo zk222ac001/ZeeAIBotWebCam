@@ -39,7 +39,7 @@ class XVF3800USBBackend:
         self._firmware_version: str | None = None
 
     def _read_control(self, *, resid: int, cmdid: int, payload_length: int) -> bytes:
-        if self._device is None or self._usb_util is None:
+        if self._device is None or self._usb_util is None or self._usb_core is None:
             raise RuntimeError("XVF3800 USB device is not started")
 
         request_type = (
@@ -48,16 +48,28 @@ class XVF3800USBBackend:
             | self._usb_util.CTRL_RECIPIENT_DEVICE
         )
         expected_length = payload_length + 1
+        last_usb_error: Exception | None = None
 
         for attempt in range(1, self.MAX_READ_ATTEMPTS + 1):
-            response = self._device.ctrl_transfer(
-                request_type,
-                0,
-                0x80 | cmdid,
-                resid,
-                expected_length,
-                self.TIMEOUT_MS,
-            )
+            try:
+                response = self._device.ctrl_transfer(
+                    request_type,
+                    0,
+                    0x80 | cmdid,
+                    resid,
+                    expected_length,
+                    self.TIMEOUT_MS,
+                )
+            except self._usb_core.USBError as exc:
+                last_usb_error = exc
+                if attempt == self.MAX_READ_ATTEMPTS:
+                    raise RuntimeError(
+                        "XVF3800 USB control transfer failed after "
+                        f"{self.MAX_READ_ATTEMPTS} attempts: {exc}"
+                    ) from exc
+                time.sleep(self.RETRY_DELAY_SECONDS)
+                continue
+
             data = response.tobytes()
             if len(data) != expected_length:
                 raise RuntimeError(
@@ -79,6 +91,8 @@ class XVF3800USBBackend:
 
             raise RuntimeError(f"XVF3800 command failed with status 0x{status:02x}")
 
+        if last_usb_error is not None:
+            raise RuntimeError(f"XVF3800 USB control transfer failed: {last_usb_error}")
         raise RuntimeError("XVF3800 command read failed unexpectedly")
 
     def start(self) -> None:
