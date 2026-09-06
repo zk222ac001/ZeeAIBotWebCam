@@ -97,7 +97,7 @@ conference:
   audio_input_device: plughw:2,0
   audio_input_validated: true
   allow_remote_audio: true
-  remote_audio_playback: false
+  remote_audio_playback: true
   audio_output_device: plughw:3,0
   audio_output_validated: true
   remote_audio_sample_rate: 48000
