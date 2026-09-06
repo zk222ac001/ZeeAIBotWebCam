@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import struct
 import time
 from typing import Any
@@ -24,9 +25,14 @@ class XVF3800USBBackend:
     VERSION_RESID = 48
     VERSION_CMDID = 0
     VERSION_LENGTH = 3
+
     DOA_RESID = 20
     DOA_CMDID = 18
     DOA_PAYLOAD_LENGTH = 4
+
+    SELECTED_AZIMUTH_RESID = 35
+    SELECTED_AZIMUTH_CMDID = 11
+    SELECTED_AZIMUTH_PAYLOAD_LENGTH = 8
 
     def __init__(self, vendor_id: int, product_id: int) -> None:
         self.vendor_id = vendor_id
@@ -128,6 +134,31 @@ class XVF3800USBBackend:
 
         self._running = True
 
+    @staticmethod
+    def _radians_to_degrees(value: float) -> float | None:
+        if not math.isfinite(value):
+            return None
+        return math.degrees(value) % 360.0
+
+    def _read_processed_azimuth(self) -> float | None:
+        """Return the XVF3800 auto-selected processed beamformer azimuth.
+
+        The device exposes two selected azimuth floats in radians. Hardware
+        diagnostics on firmware 2.0.10 showed the second value tracks a moving
+        speaker more reliably than DOA_VALUE during active-speaker calibration.
+        """
+        try:
+            payload = self._read_control(
+                resid=self.SELECTED_AZIMUTH_RESID,
+                cmdid=self.SELECTED_AZIMUTH_CMDID,
+                payload_length=self.SELECTED_AZIMUTH_PAYLOAD_LENGTH,
+            )
+            _, auto_selected = struct.unpack("<ff", payload)
+            return self._radians_to_degrees(auto_selected)
+        except Exception:
+            # Keep the primary DOA_VALUE path available as a safe fallback.
+            return None
+
     def observation(self) -> AudioObservation:
         if not self._running:
             return AudioObservation(
@@ -153,6 +184,9 @@ class XVF3800USBBackend:
         if doa_angle > 359:
             raise RuntimeError(f"XVF3800 returned invalid DoA angle: {doa_angle}")
 
+        processed_azimuth = self._read_processed_azimuth()
+        chosen_doa = processed_azimuth if processed_azimuth is not None else float(doa_angle)
+
         self._sequence += 1
         speech_active = bool(vad_flag)
         return AudioObservation(
@@ -162,11 +196,15 @@ class XVF3800USBBackend:
             sequence=self._sequence,
             speech_state=SpeechState.SPEAKING if speech_active else SpeechState.SILENT,
             speech_active=speech_active,
-            doa_degrees_raw=float(doa_angle),
-            doa_degrees=float(doa_angle),
+            doa_degrees_raw=chosen_doa,
+            doa_degrees=chosen_doa,
             orientation_calibrated=False,
             firmware_version=self._firmware_version,
-            message="XVF3800 VAD/DoA metadata available",
+            message=(
+                "XVF3800 VAD/processed beamformer azimuth available"
+                if processed_azimuth is not None
+                else "XVF3800 VAD/DoA metadata available (primary fallback)"
+            ),
         )
 
     def _dispose(self) -> None:
