@@ -146,14 +146,15 @@ class IMX500Camera:
 
             coords = tuple(float(v) for v in box)
             converted = self._imx500.convert_inference_coords(coords, metadata, self._picam2)
+            x, y, width, height = converted
             people.append(
                 PersonDetection(
                     confidence=confidence,
                     box=BoundingBox(
-                        x=int(converted.x),
-                        y=int(converted.y),
-                        width=int(converted.width),
-                        height=int(converted.height),
+                        x=int(x),
+                        y=int(y),
+                        width=int(width),
+                        height=int(height),
                     ),
                     label=label,
                 )
