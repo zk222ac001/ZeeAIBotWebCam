@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import struct
+import time
 from typing import Any
 
 from robotic_classroom.audio.models import AudioObservation, SpeechState
@@ -15,6 +16,11 @@ class XVF3800USBBackend:
     """
 
     TIMEOUT_MS = 1000
+    CONTROL_SUCCESS = 0x00
+    SERVICER_COMMAND_RETRY = 0x40
+    MAX_READ_ATTEMPTS = 100
+    RETRY_DELAY_SECONDS = 0.01
+
     VERSION_RESID = 48
     VERSION_CMDID = 0
     VERSION_LENGTH = 3
@@ -36,26 +42,44 @@ class XVF3800USBBackend:
         if self._device is None or self._usb_util is None:
             raise RuntimeError("XVF3800 USB device is not started")
 
-        response = self._device.ctrl_transfer(
+        request_type = (
             self._usb_util.CTRL_IN
             | self._usb_util.CTRL_TYPE_VENDOR
-            | self._usb_util.CTRL_RECIPIENT_DEVICE,
-            0,
-            0x80 | cmdid,
-            resid,
-            payload_length + 1,
-            self.TIMEOUT_MS,
+            | self._usb_util.CTRL_RECIPIENT_DEVICE
         )
-        data = response.tobytes()
-        if len(data) != payload_length + 1:
-            raise RuntimeError(
-                f"Unexpected XVF3800 response length: {len(data)}; "
-                f"expected {payload_length + 1}"
+        expected_length = payload_length + 1
+
+        for attempt in range(1, self.MAX_READ_ATTEMPTS + 1):
+            response = self._device.ctrl_transfer(
+                request_type,
+                0,
+                0x80 | cmdid,
+                resid,
+                expected_length,
+                self.TIMEOUT_MS,
             )
-        status = data[0]
-        if status != 0:
+            data = response.tobytes()
+            if len(data) != expected_length:
+                raise RuntimeError(
+                    f"Unexpected XVF3800 response length: {len(data)}; "
+                    f"expected {expected_length}"
+                )
+
+            status = data[0]
+            if status == self.CONTROL_SUCCESS:
+                return data[1:]
+            if status == self.SERVICER_COMMAND_RETRY:
+                if attempt == self.MAX_READ_ATTEMPTS:
+                    raise RuntimeError(
+                        "XVF3800 command remained busy after "
+                        f"{self.MAX_READ_ATTEMPTS} attempts"
+                    )
+                time.sleep(self.RETRY_DELAY_SECONDS)
+                continue
+
             raise RuntimeError(f"XVF3800 command failed with status 0x{status:02x}")
-        return data[1:]
+
+        raise RuntimeError("XVF3800 command read failed unexpectedly")
 
     def start(self) -> None:
         if self._running:
