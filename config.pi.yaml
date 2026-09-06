@@ -93,7 +93,7 @@ conference:
   session_timeout_seconds: 1800
   ice_gathering_timeout_seconds: 5.0
   publish_video: true
-  publish_audio: false
+  publish_audio: true
   audio_input_device: plughw:2,0
   audio_input_validated: true
   allow_remote_audio: true
