@@ -67,15 +67,15 @@ audio:
   poll_interval_ms: 100
   doa_smoothing_alpha: 0.35
   vad_hangover_ms: 350
-  orientation_offset_degrees: 0.0
-  orientation_calibrated: false
+  orientation_offset_degrees: 131.47
+  orientation_calibrated: true
 
 active_speaker:
   enabled: true
   poll_interval_ms: 100
-  geometry_calibrated: false
+  geometry_calibrated: true
   camera_horizontal_fov_degrees: 70.0
-  doa_inverted: false
+  doa_inverted: true
   outside_fov_margin_degrees: 5.0
   max_match_error_degrees: 18.0
   minimum_candidate_score: 0.45
