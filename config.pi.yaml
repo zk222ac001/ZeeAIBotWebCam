@@ -1,0 +1,134 @@
+application:
+  name: ZeeAIBotWebCam
+  environment: development
+
+hardware:
+  mode: real
+  vendor_path: vendor/TurboPi
+  serial_device: /dev/ttyAMA0
+  ultrasonic_enabled: true
+  infrared_enabled: true
+  motor_mapping_validated: false
+  pan_tilt:
+    enabled: true
+    calibration_validated: true
+    pan:
+      channel: 1
+      center: 1500
+      minimum: 1400
+      maximum: 1600
+      inverted: false
+    tilt:
+      channel: 2
+      center: 1500
+      minimum: 1400
+      maximum: 1600
+      inverted: false
+
+camera:
+  enabled: true
+  mode: imx500
+  required: true
+  model_path: /usr/share/imx500-models/imx500_network_ssd_mobilenetv2_fpnlite_320x320_pp.rpk
+  width: 1280
+  height: 720
+  frame_rate: 20
+  confidence_threshold: 0.55
+  jpeg_quality: 80
+  person_label: person
+
+tracking:
+  enabled: true
+  poll_interval_ms: 50
+  smoothing_alpha: 0.35
+  lost_target_timeout_ms: 1200
+  reacquire_distance_ratio: 0.30
+  dead_zone_x: 0.08
+  dead_zone_y: 0.10
+  center_weight: 0.45
+  confidence_weight: 0.35
+  size_weight: 0.20
+
+pan_tilt_control:
+  enabled: true
+  # Keep plan_only for the first integrated camera test. Change to execute only
+  # after confirming the planned direction matches the physical mount.
+  mode: plan_only
+  poll_interval_ms: 50
+  pan_gain_us: 400.0
+  tilt_gain_us: 300.0
+  max_step_us: 10
+  hold_on_lost_target: true
+
+audio:
+  enabled: true
+  mode: xvf3800_usb
+  required: false
+  vendor_id: 10374
+  product_id: 26
+  poll_interval_ms: 100
+  doa_smoothing_alpha: 0.35
+  vad_hangover_ms: 350
+  orientation_offset_degrees: 0.0
+  orientation_calibrated: false
+
+active_speaker:
+  enabled: true
+  poll_interval_ms: 100
+  geometry_calibrated: false
+  camera_horizontal_fov_degrees: 70.0
+  doa_inverted: false
+  outside_fov_margin_degrees: 5.0
+  max_match_error_degrees: 18.0
+  minimum_candidate_score: 0.45
+  continuity_distance_ratio: 0.20
+  audio_alignment_weight: 0.65
+  detection_confidence_weight: 0.20
+  size_weight: 0.05
+  continuity_weight: 0.10
+
+conference:
+  enabled: true
+  mode: aiortc
+  required: false
+  max_sessions: 2
+  session_timeout_seconds: 1800
+  ice_gathering_timeout_seconds: 5.0
+  publish_video: true
+  publish_audio: false
+  audio_input_device: plughw:2,0
+  audio_input_validated: true
+  allow_remote_audio: true
+  remote_audio_playback: false
+  audio_output_device: plughw:3,0
+  audio_output_validated: true
+  remote_audio_sample_rate: 48000
+  remote_audio_channels: 1
+  echo_management_mode: monitor
+  echo_reference_validated: false
+  probe_media_devices: true
+  auth_required: false
+  access_token: null
+  operator_poll_interval_ms: 2000
+  ice_servers: []
+  ice_username: null
+  ice_credential: null
+
+web:
+  host: 0.0.0.0
+  port: 8000
+
+logging:
+  level: INFO
+
+safety:
+  # Chassis motion remains disabled. This does not block pan/tilt execution.
+  motion_enabled: false
+  minimum_obstacle_distance_cm: 30.0
+  heartbeat_timeout_ms: 750
+  control_lease_ttl_seconds: 10.0
+  require_control_lease: true
+
+privacy:
+  recording_enabled: false
+  face_recognition_enabled: false
