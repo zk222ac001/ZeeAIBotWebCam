@@ -12,6 +12,11 @@ from robotic_classroom.core.config import AudioConfig
 class AudioService:
     """Single-owner VAD/DoA service for the ReSpeaker metadata path."""
 
+    # A real human speaker cannot jump this far around the robot between two
+    # 100 ms metadata samples. Larger jumps are usually reflections/noise or a
+    # temporary beamformer re-lock. Ignore those spikes inside one speech burst.
+    MAX_SPEECH_DOA_JUMP_DEGREES = 55.0
+
     def __init__(self, backend: AudioBackend, config: AudioConfig) -> None:
         self.backend = backend
         self.config = config
@@ -20,6 +25,8 @@ class AudioService:
         self._lock = threading.RLock()
         self._last_speech_monotonic: float | None = None
         self._smoothed_degrees: float | None = None
+        self._last_raw_speech_degrees: float | None = None
+        self._was_raw_speaking = False
         self._latest = AudioObservation(
             backend=config.mode,
             connected=False,
@@ -36,6 +43,11 @@ class AudioService:
     @staticmethod
     def _normalize_degrees(value: float) -> float:
         return value % 360.0
+
+    @staticmethod
+    def _signed_delta(a: float, b: float) -> float:
+        """Return shortest signed angular delta a-b in degrees."""
+        return ((a - b + 180.0) % 360.0) - 180.0
 
     @staticmethod
     def _blend_angle(previous: float, measured: float, alpha: float) -> float:
@@ -92,20 +104,43 @@ class AudioService:
                     speech_state = SpeechState.SILENT
 
                 doa_raw = raw.doa_degrees_raw
-                doa = None
-                if doa_raw is not None:
+                doa = self._smoothed_degrees
+
+                # DoA is only trustworthy while the DSP's VAD says there is
+                # live speech. Do not let silent/hangover/background metadata
+                # drag the active-speaker direction around.
+                if raw.speech_active and doa_raw is not None:
                     calibrated = self._normalize_degrees(
                         doa_raw + self.config.orientation_offset_degrees
                     )
-                    if self._smoothed_degrees is None:
+
+                    # A new speech burst gets a clean lock instead of inheriting
+                    # the previous speaker/noise direction.
+                    if not self._was_raw_speaking or self._smoothed_degrees is None:
                         self._smoothed_degrees = calibrated
+                        self._last_raw_speech_degrees = calibrated
                     else:
-                        self._smoothed_degrees = self._blend_angle(
-                            self._smoothed_degrees,
-                            calibrated,
-                            self.config.doa_smoothing_alpha,
+                        jump = abs(
+                            self._signed_delta(calibrated, self._last_raw_speech_degrees)
                         )
+                        if jump <= self.MAX_SPEECH_DOA_JUMP_DEGREES:
+                            self._smoothed_degrees = self._blend_angle(
+                                self._smoothed_degrees,
+                                calibrated,
+                                self.config.doa_smoothing_alpha,
+                            )
+                            self._last_raw_speech_degrees = calibrated
+                        # Otherwise keep the previous stable direction for this
+                        # sample and wait for the beamformer to re-lock.
                     doa = self._smoothed_degrees
+                elif not speech_active:
+                    # Fully silent: clear the previous burst so the next voice
+                    # starts from its own measured direction.
+                    self._smoothed_degrees = None
+                    self._last_raw_speech_degrees = None
+                    doa = None
+
+                self._was_raw_speaking = raw.speech_active
 
                 latest = AudioObservation(
                     backend=raw.backend,
