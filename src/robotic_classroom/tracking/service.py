@@ -26,7 +26,7 @@ class TrackingService:
     and chassis motion is unaffected.
     """
 
-    ACTIVE_SPEAKER_HOLD_SECONDS = 0.8
+    ACTIVE_SPEAKER_HOLD_SECONDS = 1.2
 
     def __init__(self, camera: CameraService, config: TrackingConfig) -> None:
         self.camera = camera
