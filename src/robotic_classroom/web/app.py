@@ -79,6 +79,7 @@ async def lifespan(app: FastAPI):
 
     active_speaker = ActiveSpeakerService(camera, audio, settings.active_speaker)
     active_speaker.start()
+    tracking.set_active_speaker(active_speaker)
 
     conference = ConferenceService(create_conference_backend(settings, camera))
     conference_start_error = ""
@@ -113,6 +114,7 @@ async def lifespan(app: FastAPI):
     finally:
         supervisor.emergency_stop()
         await conference.stop()
+        tracking.set_active_speaker(None)
         active_speaker.stop()
         audio.stop()
         pan_tilt.stop()
