@@ -77,8 +77,8 @@ active_speaker:
   camera_horizontal_fov_degrees: 70.0
   doa_inverted: true
   outside_fov_margin_degrees: 5.0
-  max_match_error_degrees: 18.0
-  minimum_candidate_score: 0.45
+  max_match_error_degrees: 25.0
+  minimum_candidate_score: 0.30
   continuity_distance_ratio: 0.20
   audio_alignment_weight: 0.65
   detection_confidence_weight: 0.20
