@@ -120,9 +120,10 @@ logging:
   level: INFO
 
 safety:
-  # Motor mapping is validated, but chassis motion remains disabled until
-  # obstacle sensing and the independent stop/watchdog path are validated.
-  motion_enabled: false
+  # Chassis motion is enabled after validating motor mapping, ultrasonic obstacle
+  # sensing, control lease/heartbeat gating, explicit STOP, and the independent
+  # deadman watchdog on real hardware.
+  motion_enabled: true
   minimum_obstacle_distance_cm: 30.0
   heartbeat_timeout_ms: 750
   control_lease_ttl_seconds: 10.0
