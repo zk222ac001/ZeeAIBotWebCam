@@ -26,6 +26,10 @@ class LeaseRequest(BaseModel):
     owner: str = Field(min_length=1, max_length=100)
 
 
+class LeaseTokenRequest(BaseModel):
+    token: str = Field(min_length=16, max_length=200)
+
+
 class LeaseResponse(BaseModel):
     token: str
     owner: str
@@ -97,9 +101,6 @@ async def lifespan(app: FastAPI):
             hardware.stop()
             raise
 
-    # The watchdog is started only after all services are initialized. It runs
-    # independently of request handling and forces chassis STOP if a previously
-    # accepted motion command loses its heartbeat.
     supervisor.start_watchdog()
 
     app.state.hardware = hardware
@@ -404,7 +405,9 @@ def acquire_control_lease(request: LeaseRequest) -> LeaseResponse:
 
 
 @app.post("/api/control/heartbeat")
-def heartbeat() -> dict[str, str]:
+def heartbeat(request: LeaseTokenRequest) -> dict[str, str]:
+    if not app.state.safety.leases.validate(request.token):
+        raise HTTPException(status_code=403, detail="valid control lease required")
     app.state.safety.heartbeat()
     return {"status": "heartbeat accepted"}
 
@@ -416,6 +419,8 @@ def emergency_stop() -> dict[str, str]:
 
 
 @app.post("/api/control/reset-stop")
-def reset_emergency_stop() -> dict[str, str]:
+def reset_emergency_stop(request: LeaseTokenRequest) -> dict[str, str]:
+    if not app.state.safety.leases.validate(request.token):
+        raise HTTPException(status_code=403, detail="valid control lease required")
     app.state.safety.reset_emergency_stop()
     return {"status": "emergency stop reset"}
