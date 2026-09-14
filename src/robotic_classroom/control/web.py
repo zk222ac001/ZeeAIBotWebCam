@@ -6,7 +6,7 @@ from fastapi.responses import HTMLResponse
 router = APIRouter()
 
 
-@router.get("/control", response_class=HTMLResponse)
+@router.get("/ui", response_class=HTMLResponse)
 def control_page() -> str:
     return """<!doctype html>
 <html lang="en">
@@ -33,8 +33,6 @@ def control_page() -> str:
     .lease-row { display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; }
     input { padding: .7rem; border-radius: 9px; border: 1px solid #8888; flex: 1; min-width: 180px; }
     #message { white-space: pre-wrap; min-height: 3.2rem; border-radius: 10px; padding: .7rem; background: #8882; }
-    .ok { font-weight: 700; }
-    .warn { font-weight: 800; }
     .links a { margin-right: 1rem; }
     @media (max-width: 760px) { .layout { grid-template-columns: 1fr; } }
   </style>
@@ -89,7 +87,6 @@ def control_page() -> str:
 <script>
 let token = null;
 let heartbeatTimer = null;
-let statusTimer = null;
 let moving = false;
 let acquiring = false;
 
@@ -263,15 +260,9 @@ async function refreshStatus() {
   }
 }
 
-statusTimer = setInterval(refreshStatus, 500);
+setInterval(refreshStatus, 500);
 refreshStatus();
-
 window.addEventListener('blur', stopMotion);
-window.addEventListener('beforeunload', () => {
-  try {
-    navigator.sendBeacon('/api/control/emergency-stop');
-  } catch (_) {}
-});
 </script>
 </body>
 </html>"""
