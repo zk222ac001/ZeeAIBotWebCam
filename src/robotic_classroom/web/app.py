@@ -12,6 +12,7 @@ from robotic_classroom.camera.service import CameraService
 from robotic_classroom.conference.factory import create_conference_backend
 from robotic_classroom.conference.router import router as conference_router
 from robotic_classroom.conference.service import ConferenceService
+from robotic_classroom.control.router import router as control_router
 from robotic_classroom.core.config import load_settings
 from robotic_classroom.fusion.service import ActiveSpeakerService
 from robotic_classroom.hardware.factory import create_hardware_service
@@ -137,6 +138,7 @@ app = FastAPI(
     lifespan=lifespan,
 )
 app.include_router(conference_router)
+app.include_router(control_router)
 
 
 @app.get("/health")
