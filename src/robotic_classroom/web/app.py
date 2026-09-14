@@ -97,6 +97,11 @@ async def lifespan(app: FastAPI):
             hardware.stop()
             raise
 
+    # The watchdog is started only after all services are initialized. It runs
+    # independently of request handling and forces chassis STOP if a previously
+    # accepted motion command loses its heartbeat.
+    supervisor.start_watchdog()
+
     app.state.hardware = hardware
     app.state.safety = supervisor
     app.state.camera = camera
@@ -113,6 +118,7 @@ async def lifespan(app: FastAPI):
         yield
     finally:
         supervisor.emergency_stop()
+        supervisor.stop_watchdog()
         await conference.stop()
         tracking.set_active_speaker(None)
         active_speaker.stop()
@@ -377,6 +383,8 @@ def safety_status() -> dict[str, object]:
         "state": supervisor.state.state.value,
         "motion_enabled": settings.safety.motion_enabled,
         "heartbeat_fresh": supervisor.deadman.fresh,
+        "watchdog_running": supervisor.watchdog_running,
+        "motion_active": supervisor.motion_active,
         "control_lease_required": settings.safety.require_control_lease,
         "minimum_obstacle_distance_cm": settings.safety.minimum_obstacle_distance_cm,
     }
