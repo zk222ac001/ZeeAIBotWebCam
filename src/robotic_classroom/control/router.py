@@ -4,8 +4,10 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from robotic_classroom.control.commands import MotionCommand
+from robotic_classroom.control.web import router as control_web_router
 
 router = APIRouter(prefix="/api/control", tags=["control"])
+router.include_router(control_web_router)
 
 
 class MotionRequest(BaseModel):
