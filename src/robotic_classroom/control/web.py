@@ -30,6 +30,7 @@ def control_page() -> str:
     .move { font-weight: 700; }
     .stop { font-weight: 800; font-size: 1.1rem; }
     .estop { width: 100%; min-height: 68px; font-weight: 900; font-size: 1.15rem; border: 2px solid currentColor; }
+    .reset { width: 100%; min-height: 56px; font-weight: 800; margin-top: .6rem; }
     .lease-row { display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; }
     input { padding: .7rem; border-radius: 9px; border: 1px solid #8888; flex: 1; min-width: 180px; }
     #message { white-space: pre-wrap; min-height: 3.2rem; border-radius: 10px; padding: .7rem; background: #8882; }
@@ -63,7 +64,8 @@ def control_page() -> str:
       </div>
 
       <button class="estop" id="estopBtn">EMERGENCY STOP</button>
-      <p class="hint">Emergency stop does not require a lease and always overrides movement.</p>
+      <button class="reset" id="resetBtn" disabled>Reset Emergency Stop</button>
+      <p class="hint">Reset requires a fresh authorized control lease. The button only becomes available while the robot is in emergency-stop state.</p>
     </section>
 
     <section class="card">
@@ -89,6 +91,7 @@ let token = null;
 let heartbeatTimer = null;
 let moving = false;
 let acquiring = false;
+let currentRobotState = null;
 
 const directions = {
   forward:      {forward: 1, sideways: 0, rotation: 0},
@@ -130,11 +133,11 @@ async function acquireLease() {
       body: JSON.stringify({owner})
     });
     token = data.token;
-    document.getElementById('leaseStatus').textContent = `Control acquired for ${data.ttl_seconds}s; auto-renews after expiry.`;
+    document.getElementById('leaseStatus').textContent = `Control acquired for ${data.ttl_seconds}s.`;
     document.getElementById('leaseMetric').textContent = 'active';
-    setMoveButtonsEnabled(true);
     startHeartbeat();
-    setMessage('Control lease acquired. Hold a direction button to move.');
+    if (currentRobotState === 'idle') setMoveButtonsEnabled(true);
+    setMessage('Authorized control lease acquired.');
     return true;
   } catch (error) {
     setMessage(`Could not acquire control: ${error.message}`);
@@ -158,8 +161,8 @@ async function heartbeatOnce() {
       token = null;
       setMoveButtonsEnabled(false);
       document.getElementById('leaseMetric').textContent = 'expired';
+      document.getElementById('leaseStatus').textContent = 'Control lease expired';
       if (moving) await stopMotion();
-      await acquireLease();
     } else {
       setMessage(`Heartbeat error: ${error.message}`);
     }
@@ -229,12 +232,51 @@ document.getElementById('estopBtn').onclick = async () => {
   moving = false;
   try {
     await api('/api/control/emergency-stop', {method: 'POST'});
+    token = null;
+    if (heartbeatTimer) clearInterval(heartbeatTimer);
+    heartbeatTimer = null;
     setMoveButtonsEnabled(false);
-    setMessage('EMERGENCY STOP ACTIVE. Motion is blocked until reset through an authorized control workflow.');
+    document.getElementById('leaseMetric').textContent = 'cleared';
+    document.getElementById('leaseStatus').textContent = 'Lease cleared by emergency stop';
+    setMessage('EMERGENCY STOP ACTIVE. Acquire fresh control, then press Reset Emergency Stop.');
+    await refreshStatus();
   } catch (error) {
     setMessage(`Emergency-stop request error: ${error.message}`);
   }
 };
+
+async function resetEmergencyStop() {
+  if (currentRobotState !== 'emergency_stop') {
+    setMessage('Robot is not currently in emergency-stop state.');
+    return;
+  }
+
+  if (!token) {
+    setMessage('Emergency-stop reset requires a fresh authorized control lease. Acquiring one now...');
+    const acquired = await acquireLease();
+    if (!acquired) return;
+  }
+
+  try {
+    const result = await api('/api/control/reset-stop', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({token})
+    });
+    setMessage(`${result.status}. Movement remains stopped until you deliberately press a direction control.`);
+    await heartbeatOnce();
+    await refreshStatus();
+  } catch (error) {
+    if (error.status === 403) {
+      token = null;
+      document.getElementById('leaseMetric').textContent = 'invalid';
+      setMessage('Reset refused because the lease is invalid or expired. Press Reset again to acquire a fresh lease.');
+    } else {
+      setMessage(`Emergency-stop reset failed: ${error.message}`);
+    }
+  }
+}
+
+document.getElementById('resetBtn').onclick = resetEmergencyStop;
 
 async function refreshStatus() {
   try {
@@ -242,6 +284,7 @@ async function refreshStatus() {
       api('/api/sensors'),
       api('/api/safety')
     ]);
+    currentRobotState = safety.state;
     document.getElementById('distance').textContent = sensors.distance_cm == null ? 'unavailable' : `${Number(sensors.distance_cm).toFixed(1)} cm`;
     document.getElementById('robotState').textContent = safety.state;
     document.getElementById('motionEnabled').textContent = String(safety.motion_enabled);
@@ -249,6 +292,7 @@ async function refreshStatus() {
     document.getElementById('heartbeat').textContent = safety.heartbeat_fresh ? 'fresh' : 'expired';
     document.getElementById('watchdog').textContent = safety.watchdog_running ? 'running' : 'NOT RUNNING';
     document.getElementById('obstacleLimit').textContent = `${Number(safety.minimum_obstacle_distance_cm).toFixed(1)} cm`;
+    document.getElementById('resetBtn').disabled = safety.state !== 'emergency_stop';
 
     if (safety.state !== 'idle' || !safety.motion_enabled || !safety.watchdog_running) {
       setMoveButtonsEnabled(false);
