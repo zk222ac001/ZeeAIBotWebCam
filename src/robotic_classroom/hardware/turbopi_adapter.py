@@ -16,9 +16,12 @@ class TurboPiAdapter:
     """Production-facing wrapper around the verified Hiwonder TurboPi SDK.
 
     Vendor imports are lazy because constructing ``Board`` immediately opens the
-    serial device. Chassis movement remains unavailable until Phase 2 motor mapping
-    has been explicitly marked as validated in configuration.
+    serial device. Chassis movement is available only after the physical motor
+    mapping has been explicitly marked as validated in configuration. The safety
+    supervisor remains the required gatekeeper for application motion.
     """
+
+    MAX_MOTOR_DUTY = 30
 
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
@@ -114,15 +117,42 @@ class TurboPiAdapter:
     def set_tilt_pulse(self, pulse: int) -> None:
         self._set_axis("tilt", pulse)
 
+    @classmethod
+    def _motor_duties(cls, command: MotionCommand) -> list[list[int]]:
+        """Convert normalized chassis axes to the physically validated M1-M4 signs.
+
+        Conventions used by the application:
+        - forward > 0: forward
+        - sideways > 0: right strafe
+        - rotation > 0: rotate right
+
+        The sign patterns were bench-validated on this robot:
+        forward      (-,+,-,+)
+        right strafe (-,-,+,+)
+        rotate right (-,-,-,-)
+        """
+        f = command.forward
+        s = command.sideways
+        r = command.rotation
+
+        raw = [
+            -f - s - r,
+            +f - s - r,
+            -f + s - r,
+            +f + s - r,
+        ]
+        peak = max(1.0, *(abs(value) for value in raw))
+        scaled = [int(round((value / peak) * cls.MAX_MOTOR_DUTY)) for value in raw]
+        return [[index + 1, duty] for index, duty in enumerate(scaled)]
+
     def drive(self, command: MotionCommand) -> None:
-        # Phase 3 deliberately refuses chassis movement until the physical motor
-        # mapping has been validated and committed to configuration.
         if not self.settings.hardware.motor_mapping_validated:
             raise RuntimeError("motor mapping has not been validated")
         if command.is_stop:
             self.stop_motion()
             return
-        raise RuntimeError("chassis motion implementation is locked until motor calibration is complete")
+        board = self._require_board()
+        board.set_motor_duty(self._motor_duties(command))
 
     def stop_motion(self) -> None:
         if self._board is None:
