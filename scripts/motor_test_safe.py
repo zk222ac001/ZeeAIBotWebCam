@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Reusable guarded TurboPi motor test.
 
-Bench-test M1-M4 one at a time at low duty. The script refuses to run unless
---confirm-motion is supplied and should only be used with all wheels lifted
-clear of the work surface.
+Bench-test M1-M4 one at a time at low-to-moderate duty. The script refuses to
+run unless --confirm-motion is supplied and should only be used with all wheels
+lifted clear of the work surface.
 """
 from __future__ import annotations
 
@@ -72,7 +72,7 @@ def test_motor(board, motor_id: int, duty: int, duration: float, pause: float) -
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Safe low-speed TurboPi M1-M4 bench test"
+        description="Guarded TurboPi M1-M4 bench test"
     )
     parser.add_argument(
         "--confirm-motion",
@@ -89,7 +89,7 @@ def main() -> None:
         "--duty",
         type=int,
         default=15,
-        help="Motor duty, limited to -20..20 (default: 15)",
+        help="Motor duty, limited to -35..35 (default: 15)",
     )
     parser.add_argument(
         "--duration",
@@ -109,18 +109,20 @@ def main() -> None:
         raise SystemExit(
             "Motion refused. Lift all four wheels clear of the table, then re-run with --confirm-motion."
         )
-    if abs(args.duty) > 20:
-        raise SystemExit("Duty is limited to -20..20 for this safety test.")
+    if abs(args.duty) > 35:
+        raise SystemExit("Duty is limited to -35..35 for this guarded bench test.")
     if not 0.1 <= args.duration <= 0.5:
         raise SystemExit("Duration must be between 0.1 and 0.5 seconds.")
     if args.pause < 0.2:
         raise SystemExit("Pause must be at least 0.2 seconds.")
 
-    print("TurboPi safe motor test")
-    print("=======================")
+    print("TurboPi guarded motor test")
+    print("==========================")
     print("SAFETY: all four wheels must be lifted clear of the work surface.")
     print("Press Ctrl+C at any time to stop the test.")
     print("Expected mapping: M1 left-front, M2 right-front, M3 left-rear, M4 right-rear.")
+    if abs(args.duty) > 20:
+        print("NOTE: duty above 20 is intended only for short bench diagnosis.")
 
     board = load_board()
     try:
