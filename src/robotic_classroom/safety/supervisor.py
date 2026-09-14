@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import threading
 
 from robotic_classroom.control.commands import MotionCommand
 from robotic_classroom.control.lease import ControlLeaseManager
@@ -22,6 +23,9 @@ class SafetySupervisor:
 
     Vision, web, AI and conference code may submit requests only. This class is the
     component that decides whether a command may reach the hardware adapter.
+
+    A background deadman watchdog independently forces a stop when an active
+    chassis command outlives the configured heartbeat timeout.
     """
 
     def __init__(self, settings: Settings, hardware: HardwareService) -> None:
@@ -33,18 +37,68 @@ class SafetySupervisor:
         self.validator = CommandValidator(maximum_absolute_command=1.0)
         self.state.set_idle()
 
+        self._lock = threading.RLock()
+        self._motion_active = False
+        self._watchdog_stop = threading.Event()
+        self._watchdog_thread: threading.Thread | None = None
+
+    def start_watchdog(self) -> None:
+        """Start the independent heartbeat watchdog once."""
+        with self._lock:
+            if self._watchdog_thread is not None and self._watchdog_thread.is_alive():
+                return
+            self._watchdog_stop.clear()
+            self._watchdog_thread = threading.Thread(
+                target=self._watchdog_loop,
+                name="chassis-deadman-watchdog",
+                daemon=True,
+            )
+            self._watchdog_thread.start()
+
+    def stop_watchdog(self) -> None:
+        """Stop and join the watchdog thread."""
+        self._watchdog_stop.set()
+        thread = self._watchdog_thread
+        if thread is not None and thread.is_alive():
+            thread.join(timeout=1.0)
+        self._watchdog_thread = None
+
+    def _watchdog_loop(self) -> None:
+        interval = min(max(self.deadman.timeout_seconds / 4.0, 0.02), 0.10)
+        while not self._watchdog_stop.wait(interval):
+            if not self._motion_active or self.deadman.fresh:
+                continue
+            with self._lock:
+                if self._motion_active and not self.deadman.fresh:
+                    self.hardware.stop_motion()
+                    self._motion_active = False
+
+    @property
+    def watchdog_running(self) -> bool:
+        thread = self._watchdog_thread
+        return thread is not None and thread.is_alive()
+
+    @property
+    def motion_active(self) -> bool:
+        return self._motion_active
+
     def emergency_stop(self) -> None:
-        self.hardware.stop_motion()
-        self.deadman.clear()
-        self.leases.clear()
-        self.state.emergency_stop()
+        with self._lock:
+            self.hardware.stop_motion()
+            self._motion_active = False
+            self.deadman.clear()
+            self.leases.clear()
+            self.state.emergency_stop()
 
     def reset_emergency_stop(self) -> None:
-        self.hardware.stop_motion()
-        self.state.reset_to_idle()
+        with self._lock:
+            self.hardware.stop_motion()
+            self._motion_active = False
+            self.state.reset_to_idle()
 
     def heartbeat(self) -> None:
-        self.deadman.heartbeat()
+        with self._lock:
+            self.deadman.heartbeat()
 
     def evaluate(self, command: MotionCommand, lease_token: str | None = None) -> SafetyDecision:
         if command.is_stop:
@@ -78,12 +132,16 @@ class SafetySupervisor:
         return SafetyDecision(True, "command permitted")
 
     def submit_motion(self, command: MotionCommand, lease_token: str | None = None) -> SafetyDecision:
-        decision = self.evaluate(command, lease_token)
-        if command.is_stop:
-            self.hardware.stop_motion()
+        with self._lock:
+            decision = self.evaluate(command, lease_token)
+            if command.is_stop:
+                self.hardware.stop_motion()
+                self._motion_active = False
+                return decision
+            if not decision.allowed:
+                self.hardware.stop_motion()
+                self._motion_active = False
+                return decision
+            self.hardware.drive(command)
+            self._motion_active = True
             return decision
-        if not decision.allowed:
-            self.hardware.stop_motion()
-            return decision
-        self.hardware.drive(command)
-        return decision
