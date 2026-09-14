@@ -16,7 +16,14 @@ Test sequence:
 from __future__ import annotations
 
 import argparse
+import sys
 import time
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+SRC = ROOT / "src"
+if str(SRC) not in sys.path:
+    sys.path.insert(0, str(SRC))
 
 from robotic_classroom.control.commands import MotionCommand
 from robotic_classroom.core.config import load_settings
@@ -47,7 +54,7 @@ def main() -> None:
     if not 0.2 <= args.wait_extra <= 2.0:
         raise SystemExit("--wait-extra must be between 0.2 and 2.0 seconds")
 
-    settings = load_settings("config.pi.yaml")
+    settings = load_settings(ROOT / "config.pi.yaml")
     if settings.hardware.mode != "real":
         raise SystemExit("config.pi.yaml is not using real hardware mode")
     if not settings.hardware.motor_mapping_validated:
