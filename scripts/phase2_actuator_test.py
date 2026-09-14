@@ -35,8 +35,38 @@ def require_confirmation(args: argparse.Namespace) -> None:
         )
 
 
-def stop_all(board) -> None:
-    board.set_motor_duty([[1, 0], [2, 0], [3, 0], [4, 0]])
+def stop_all(board, repeats: int = 5, interval: float = 0.05) -> None:
+    """Send a short burst of all-zero motor duty commands.
+
+    Repeating the stop packet reduces the chance that a single lost/late serial
+    packet leaves a motor running after a bench test.
+    """
+    for _ in range(repeats):
+        board.set_motor_duty([[1, 0], [2, 0], [3, 0], [4, 0]])
+        time.sleep(interval)
+
+
+def close_board(board) -> None:
+    port = getattr(board, "port", None)
+    if port is not None and getattr(port, "is_open", False):
+        try:
+            port.flush()
+        except Exception:
+            pass
+        time.sleep(0.1)
+        port.close()
+
+
+def stop_only(args: argparse.Namespace) -> None:
+    require_confirmation(args)
+    print("SAFETY CHECK: all wheels must be lifted clear of the work surface.")
+    print("Sending repeated STOP commands to M1-M4...")
+    board = load_board()
+    try:
+        stop_all(board, repeats=10, interval=0.05)
+    finally:
+        close_board(board)
+    print("STOP burst complete; all motor duties commanded to zero repeatedly.")
 
 
 def motor_test(args: argparse.Namespace) -> None:
@@ -58,13 +88,10 @@ def motor_test(args: argparse.Namespace) -> None:
         time.sleep(args.duration)
     finally:
         try:
-            stop_all(board)
-            time.sleep(0.1)
+            stop_all(board, repeats=10, interval=0.05)
         finally:
-            port = getattr(board, "port", None)
-            if port is not None and getattr(port, "is_open", False):
-                port.close()
-    print("Motor test complete; all motor duties commanded to zero.")
+            close_board(board)
+    print("Motor test complete; repeated all-zero stop burst sent to M1-M4.")
 
 
 def servo_test(args: argparse.Namespace) -> None:
@@ -81,9 +108,7 @@ def servo_test(args: argparse.Namespace) -> None:
         board.pwm_servo_set_position(0.3, [[args.id, args.pulse]])
         time.sleep(0.5)
     finally:
-        port = getattr(board, "port", None)
-        if port is not None and getattr(port, "is_open", False):
-            port.close()
+        close_board(board)
     print("Servo command complete. Record actual axis, direction and mechanical behaviour.")
 
 
@@ -97,6 +122,10 @@ def main() -> None:
     motor.add_argument("--duration", type=float, default=0.25)
     motor.add_argument("--confirm-motion", action="store_true")
     motor.set_defaults(func=motor_test)
+
+    stop = sub.add_parser("stop")
+    stop.add_argument("--confirm-motion", action="store_true")
+    stop.set_defaults(func=stop_only)
 
     servo = sub.add_parser("servo")
     servo.add_argument("--id", type=int, required=True)
