@@ -8,7 +8,7 @@ hardware:
   serial_device: /dev/ttyAMA0
   ultrasonic_enabled: true
   infrared_enabled: true
-  motor_mapping_validated: false
+  motor_mapping_validated: true
   pan_tilt:
     enabled: true
     calibration_validated: true
@@ -120,7 +120,8 @@ logging:
   level: INFO
 
 safety:
-  # Chassis motion remains disabled. Only calibrated camera pan/tilt is enabled.
+  # Motor mapping is validated, but chassis motion remains disabled until
+  # obstacle sensing and the independent stop/watchdog path are validated.
   motion_enabled: false
   minimum_obstacle_distance_cm: 30.0
   heartbeat_timeout_ms: 750
