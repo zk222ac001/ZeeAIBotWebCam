@@ -1,3 +1,5 @@
+import time
+
 from robotic_classroom.control.commands import MotionCommand
 from robotic_classroom.core.config import load_settings
 from robotic_classroom.hardware.mock import MockHardwareService
@@ -50,3 +52,29 @@ def test_command_validator_rejects_out_of_range_values() -> None:
 
     assert decision.allowed is False
     assert "exceeds" in decision.reason
+
+
+def test_watchdog_forces_stop_after_heartbeat_expires() -> None:
+    supervisor, hardware = build_supervisor()
+    supervisor.settings.safety.motion_enabled = True
+    supervisor.settings.safety.heartbeat_timeout_ms = 80
+    supervisor.deadman.timeout_seconds = 0.08
+    lease = supervisor.leases.acquire("watchdog-test")
+
+    supervisor.start_watchdog()
+    try:
+        supervisor.heartbeat()
+        decision = supervisor.submit_motion(MotionCommand(forward=0.2), lease.token)
+
+        assert decision.allowed is True
+        assert supervisor.motion_active is True
+        assert hardware.last_motion.forward == 0.2
+
+        deadline = time.monotonic() + 0.5
+        while supervisor.motion_active and time.monotonic() < deadline:
+            time.sleep(0.01)
+
+        assert supervisor.motion_active is False
+        assert hardware.last_motion.is_stop
+    finally:
+        supervisor.stop_watchdog()
