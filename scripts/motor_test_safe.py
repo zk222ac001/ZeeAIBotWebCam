@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Reusable guarded TurboPi motor test.
 
-Bench-test M1-M4 one at a time at low-to-moderate duty. The script refuses to
-run unless --confirm-motion is supplied and should only be used with all wheels
-lifted clear of the work surface.
+Bench-test M1-M4 one at a time at the validated bench-test duty. The script
+refuses to run unless --confirm-motion is supplied and should only be used with
+all wheels lifted clear of the work surface.
 """
 from __future__ import annotations
 
@@ -88,8 +88,8 @@ def main() -> None:
     parser.add_argument(
         "--duty",
         type=int,
-        default=15,
-        help="Motor duty, limited to -35..35 (default: 15)",
+        default=30,
+        help="Motor duty, limited to -35..35 (default: 30, validated on this robot)",
     )
     parser.add_argument(
         "--duration",
@@ -121,8 +121,7 @@ def main() -> None:
     print("SAFETY: all four wheels must be lifted clear of the work surface.")
     print("Press Ctrl+C at any time to stop the test.")
     print("Expected mapping: M1 left-front, M2 right-front, M3 left-rear, M4 right-rear.")
-    if abs(args.duty) > 20:
-        print("NOTE: duty above 20 is intended only for short bench diagnosis.")
+    print("Default duty 30 is the validated starting duty for this robot; lower duty may only buzz/beep.")
 
     board = load_board()
     try:
