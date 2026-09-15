@@ -7,7 +7,7 @@ config.pi.yaml. It requires all four wheels to be lifted clear of the surface.
 Test sequence:
 1. Start the real TurboPi hardware adapter.
 2. Start the independent safety watchdog.
-3. Acquire a control lease and send one heartbeat.
+3. Acquire a control lease and send one lease-bound heartbeat.
 4. Command forward motion at full normalized input (adapter caps motor duty at 30).
 5. Intentionally stop sending heartbeats.
 6. Verify the watchdog marks motion inactive after the configured timeout.
@@ -60,7 +60,6 @@ def main() -> None:
     if not settings.hardware.motor_mapping_validated:
         raise SystemExit("Motor mapping is not marked as validated")
 
-    # Temporary test-only override. The configuration file is never changed.
     settings.safety.motion_enabled = True
 
     hardware = create_hardware_service(settings)
@@ -87,8 +86,9 @@ def main() -> None:
                 "from the ultrasonic sensor and repeat the test."
             )
 
-        lease = supervisor.leases.acquire("watchdog-hardware-test")
-        supervisor.heartbeat()
+        lease = supervisor.acquire_control_lease("watchdog-hardware-test")
+        if not supervisor.heartbeat(lease.token):
+            raise RuntimeError("Lease-bound heartbeat was unexpectedly refused")
 
         command = MotionCommand(forward=1.0)
         decision = supervisor.submit_motion(command, lease.token)
