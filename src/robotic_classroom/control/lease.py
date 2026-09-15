@@ -40,6 +40,14 @@ class ControlLeaseManager:
             and secrets.compare_digest(token, self._lease.token)
         )
 
+    def renew(self, token: str | None) -> bool:
+        """Extend an active lease after authenticating its token."""
+        if not self.validate(token):
+            return False
+        assert self._lease is not None
+        self._lease.expires_at = time.monotonic() + self.ttl_seconds
+        return True
+
     def release(self, token: str) -> None:
         if self.validate(token):
             self._lease = None
