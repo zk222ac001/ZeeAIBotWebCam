@@ -119,21 +119,26 @@ class TurboPiAdapter:
 
     @classmethod
     def _motor_duties(cls, command: MotionCommand) -> list[list[int]]:
-        """Convert normalized chassis axes to the robot's observed M1-M4 signs.
+        """Convert normalized chassis axes to Hiwonder's TurboPi M1-M4 signs.
 
         Application conventions:
-        - forward > 0: forward
-        - sideways > 0: right strafe
-        - rotation > 0: rotate right
+        - forward > 0: move toward the camera/front of the chassis
+        - sideways > 0: strafe right
+        - rotation > 0: rotate right/clockwise
 
-        Real-hardware observations showed that the previous forward/sideways axes
-        were swapped. The corrected sign patterns are:
-        forward      (-,-,+,+)
-        backward     (+,+,-,-)
-        right strafe (-,+,-,+)
-        left strafe  (+,-,+,-)
+        This mixer intentionally follows Hiwonder's upstream
+        ``HiwonderSDK/mecanum.py`` motor polarity. With the documented physical
+        mapping M1=left-front, M2=right-front, M3=left-rear, M4=right-rear:
+
+        forward      (-,+,-,+)
+        backward     (+,-,+,-)
+        right strafe (-,-,+,+)
+        left strafe  (+,+,-,-)
         rotate right (-,-,-,-)
         rotate left  (+,+,+,+)
+
+        Do not change these signs to compensate for a motor plugged into the
+        wrong M-port; fix the physical M1-M4 mapping instead.
         """
         f = command.forward
         s = command.sideways
@@ -141,8 +146,8 @@ class TurboPiAdapter:
 
         raw = [
             -f - s - r,
-            -f + s - r,
             +f - s - r,
+            -f + s - r,
             +f + s - r,
         ]
         peak = max(1.0, *(abs(value) for value in raw))
