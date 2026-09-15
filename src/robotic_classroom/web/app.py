@@ -396,7 +396,7 @@ def safety_status() -> dict[str, object]:
 @app.post("/api/control/lease", response_model=LeaseResponse)
 def acquire_control_lease(request: LeaseRequest) -> LeaseResponse:
     try:
-        lease = app.state.safety.leases.acquire(request.owner)
+        lease = app.state.safety.acquire_control_lease(request.owner)
     except RuntimeError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     return LeaseResponse(
@@ -408,9 +408,8 @@ def acquire_control_lease(request: LeaseRequest) -> LeaseResponse:
 
 @app.post("/api/control/heartbeat")
 def heartbeat(request: LeaseTokenRequest) -> dict[str, str]:
-    if not app.state.safety.leases.validate(request.token):
+    if not app.state.safety.heartbeat(request.token):
         raise HTTPException(status_code=403, detail="valid control lease required")
-    app.state.safety.heartbeat()
     return {"status": "heartbeat accepted"}
 
 
@@ -422,7 +421,6 @@ def emergency_stop() -> dict[str, str]:
 
 @app.post("/api/control/reset-stop")
 def reset_emergency_stop(request: LeaseTokenRequest) -> dict[str, str]:
-    if not app.state.safety.leases.validate(request.token):
+    if not app.state.safety.reset_emergency_stop(request.token):
         raise HTTPException(status_code=403, detail="valid control lease required")
-    app.state.safety.reset_emergency_stop()
     return {"status": "emergency stop reset"}
