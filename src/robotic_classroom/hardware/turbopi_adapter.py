@@ -119,17 +119,21 @@ class TurboPiAdapter:
 
     @classmethod
     def _motor_duties(cls, command: MotionCommand) -> list[list[int]]:
-        """Convert normalized chassis axes to the physically validated M1-M4 signs.
+        """Convert normalized chassis axes to the robot's observed M1-M4 signs.
 
-        Conventions used by the application:
+        Application conventions:
         - forward > 0: forward
         - sideways > 0: right strafe
         - rotation > 0: rotate right
 
-        The sign patterns were bench-validated on this robot:
-        forward      (-,+,-,+)
-        right strafe (-,-,+,+)
+        Real-hardware observations showed that the previous forward/sideways axes
+        were swapped. The corrected sign patterns are:
+        forward      (-,-,+,+)
+        backward     (+,+,-,-)
+        right strafe (-,+,-,+)
+        left strafe  (+,-,+,-)
         rotate right (-,-,-,-)
+        rotate left  (+,+,+,+)
         """
         f = command.forward
         s = command.sideways
@@ -137,8 +141,8 @@ class TurboPiAdapter:
 
         raw = [
             -f - s - r,
-            +f - s - r,
             -f + s - r,
+            +f - s - r,
             +f + s - r,
         ]
         peak = max(1.0, *(abs(value) for value in raw))
