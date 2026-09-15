@@ -4,7 +4,7 @@ from dataclasses import dataclass
 import threading
 
 from robotic_classroom.control.commands import MotionCommand
-from robotic_classroom.control.lease import ControlLeaseManager
+from robotic_classroom.control.lease import ControlLease, ControlLeaseManager
 from robotic_classroom.control.state_machine import RobotState, RobotStateMachine
 from robotic_classroom.core.config import Settings
 from robotic_classroom.hardware.interface import HardwareService
@@ -19,14 +19,7 @@ class SafetyDecision:
 
 
 class SafetySupervisor:
-    """Single gatekeeper for all future chassis movement.
-
-    Vision, web, AI and conference code may submit requests only. This class is the
-    component that decides whether a command may reach the hardware adapter.
-
-    A background deadman watchdog independently forces a stop when an active
-    chassis command outlives the configured heartbeat timeout.
-    """
+    """Single gatekeeper for all chassis movement and operator authorization."""
 
     def __init__(self, settings: Settings, hardware: HardwareService) -> None:
         self.settings = settings
@@ -43,7 +36,6 @@ class SafetySupervisor:
         self._watchdog_thread: threading.Thread | None = None
 
     def start_watchdog(self) -> None:
-        """Start the independent heartbeat watchdog once."""
         with self._lock:
             if self._watchdog_thread is not None and self._watchdog_thread.is_alive():
                 return
@@ -56,7 +48,6 @@ class SafetySupervisor:
             self._watchdog_thread.start()
 
     def stop_watchdog(self) -> None:
-        """Stop and join the watchdog thread."""
         self._watchdog_stop.set()
         thread = self._watchdog_thread
         if thread is not None and thread.is_alive():
@@ -82,6 +73,11 @@ class SafetySupervisor:
     def motion_active(self) -> bool:
         return self._motion_active
 
+    def acquire_control_lease(self, owner: str) -> ControlLease:
+        """Acquire the single operator lease under the supervisor lock."""
+        with self._lock:
+            return self.leases.acquire(owner)
+
     def emergency_stop(self) -> None:
         with self._lock:
             self.hardware.stop_motion()
@@ -90,15 +86,25 @@ class SafetySupervisor:
             self.leases.clear()
             self.state.emergency_stop()
 
-    def reset_emergency_stop(self) -> None:
+    def reset_emergency_stop(self, lease_token: str | None = None) -> bool:
+        """Reset E-stop only for an authorized operator when leases are required."""
         with self._lock:
+            if self.settings.safety.require_control_lease and not self.leases.validate(lease_token):
+                return False
             self.hardware.stop_motion()
             self._motion_active = False
+            self.deadman.clear()
             self.state.reset_to_idle()
+            return True
 
-    def heartbeat(self) -> None:
+    def heartbeat(self, lease_token: str | None = None) -> bool:
+        """Accept a heartbeat and renew the lease atomically when required."""
         with self._lock:
+            if self.settings.safety.require_control_lease:
+                if not self.leases.renew(lease_token):
+                    return False
             self.deadman.heartbeat()
+            return True
 
     def evaluate(self, command: MotionCommand, lease_token: str | None = None) -> SafetyDecision:
         if command.is_stop:
