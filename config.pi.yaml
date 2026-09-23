@@ -94,7 +94,7 @@ conference:
   ice_gathering_timeout_seconds: 5.0
   publish_video: true
   publish_audio: true
-  audio_input_device: "plughw:CARD=Array,DEV=0"
+  audio_input_device: "plughw:CARD=Device,DEV=0"
   audio_input_validated: true
   allow_remote_audio: true
   remote_audio_playback: true
