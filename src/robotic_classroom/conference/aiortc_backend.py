@@ -217,6 +217,13 @@ class AiortcConferenceBackend:
                 description=SessionDescription(type=local.type, sdp=local.sdp),
             )
         except Exception:
+            # A remote audio track may already have started while the SDP offer is
+            # being processed. Cancel and await those tasks before tearing down the
+            # peer connection so failed offers do not leave pending playback tasks.
+            if runtime.remote_tasks:
+                for task in runtime.remote_tasks:
+                    task.cancel()
+                await asyncio.gather(*runtime.remote_tasks, return_exceptions=True)
             if runtime.playback is not None:
                 runtime.playback.stop()
             await pc.close()
