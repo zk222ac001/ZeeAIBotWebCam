@@ -194,6 +194,19 @@ const statusEl = document.getElementById('status');
 const videoEl = document.getElementById('remoteVideo');
 const connectBtn = document.getElementById('connect');
 const disconnectBtn = document.getElementById('disconnect');
+const sendMic = document.getElementById('sendMic');
+
+function browserMicAvailable() {
+  return Boolean(window.isSecureContext && navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
+}
+
+if (!browserMicAvailable()) {
+  sendMic.checked = false;
+  sendMic.disabled = true;
+  statusEl.textContent =
+    'Browser microphone is unavailable on this HTTP address. Receive-only video can still connect. ' +
+    'Use HTTPS (or localhost on the same device) to send the browser microphone.';
+}
 
 function headers() {
   const token = document.getElementById('token').value.trim();
@@ -232,7 +245,12 @@ connectBtn.onclick = async () => {
     pc.onconnectionstatechange = () => updateStatus();
     pc.oniceconnectionstatechange = () => updateStatus();
 
-    if (document.getElementById('sendMic').checked) {
+    if (sendMic.checked) {
+      if (!browserMicAvailable()) {
+        throw new Error(
+          'Browser microphone requires a secure HTTPS context. Uncheck the microphone option for receive-only testing.'
+        );
+      }
       localStream = await navigator.mediaDevices.getUserMedia({audio: true, video: false});
       for (const track of localStream.getAudioTracks()) pc.addTrack(track, localStream);
     }
