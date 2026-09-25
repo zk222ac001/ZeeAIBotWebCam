@@ -53,9 +53,9 @@ pan_tilt_control:
   enabled: true
   mode: execute
   poll_interval_ms: 50
-  pan_gain_us: 400.0
-  tilt_gain_us: 300.0
-  max_step_us: 10
+  pan_gain_us: 220.0
+  tilt_gain_us: 160.0
+  max_step_us: 5
   hold_on_lost_target: true
 
 audio:
