@@ -204,8 +204,8 @@ if (!browserMicAvailable()) {
   sendMic.checked = false;
   sendMic.disabled = true;
   statusEl.textContent =
-    'Browser microphone is unavailable on this HTTP address. Receive-only video can still connect. ' +
-    'Use HTTPS (or localhost on the same device) to send the browser microphone.';
+    'Browser microphone is unavailable in this context. Robot video and audio can still be received. ' +
+    'Use trusted HTTPS and allow microphone permission to send browser audio.';
 }
 
 function headers() {
@@ -239,8 +239,13 @@ connectBtn.onclick = async () => {
   try {
     pc = new RTCPeerConnection();
     pc.addTransceiver('video', {direction: 'recvonly'});
+    // Keep both remote media kinds, including streamless audio tracks.
+    const remoteStream = new MediaStream();
+    videoEl.srcObject = remoteStream;
     pc.ontrack = event => {
-      if (event.track.kind === 'video') videoEl.srcObject = event.streams[0] || new MediaStream([event.track]);
+      if (event.track.kind === 'video' || event.track.kind === 'audio') {
+        if (!remoteStream.getTracks().includes(event.track)) remoteStream.addTrack(event.track);
+      }
     };
     pc.onconnectionstatechange = () => updateStatus();
     pc.oniceconnectionstatechange = () => updateStatus();
@@ -253,6 +258,10 @@ connectBtn.onclick = async () => {
       }
       localStream = await navigator.mediaDevices.getUserMedia({audio: true, video: false});
       for (const track of localStream.getAudioTracks()) pc.addTrack(track, localStream);
+    } else {
+      // Receiving the Pi microphone does not require browser microphone access.
+      // Include an audio m-line so the server can answer with its audio track.
+      pc.addTransceiver('audio', {direction: 'recvonly'});
     }
 
     const offer = await pc.createOffer();
@@ -271,24 +280,38 @@ connectBtn.onclick = async () => {
     disconnectBtn.disabled = false;
     updateStatus(`session=${sessionId}`);
   } catch (error) {
+    await closeConnection();
     updateStatus(`error=${error}`);
     connectBtn.disabled = false;
+    disconnectBtn.disabled = true;
   }
 };
 
-disconnectBtn.onclick = async () => {
-  if (sessionId) {
-    await fetch(`/api/conference/sessions/${sessionId}`, {
+async function closeConnection() {
+  const closingSessionId = sessionId;
+  const closingStream = localStream;
+  const closingPeer = pc;
+  sessionId = null;
+  localStream = null;
+  pc = null;
+  if (closingStream) for (const track of closingStream.getTracks()) track.stop();
+  if (closingPeer) {
+    closingPeer.ontrack = null;
+    closingPeer.onconnectionstatechange = null;
+    closingPeer.oniceconnectionstatechange = null;
+    closingPeer.close();
+  }
+  videoEl.srcObject = null;
+  if (closingSessionId) {
+    await fetch(`/api/conference/sessions/${closingSessionId}`, {
       method: 'DELETE',
       headers: headers()
     }).catch(() => {});
   }
-  if (localStream) for (const track of localStream.getTracks()) track.stop();
-  if (pc) pc.close();
-  pc = null;
-  sessionId = null;
-  localStream = null;
-  videoEl.srcObject = null;
+}
+
+disconnectBtn.onclick = async () => {
+  await closeConnection();
   connectBtn.disabled = false;
   disconnectBtn.disabled = true;
   updateStatus('closed');
