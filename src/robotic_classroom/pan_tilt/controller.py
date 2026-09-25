@@ -30,9 +30,22 @@ class PanTiltController:
     def _clamp(value: int, minimum: int, maximum: int) -> int:
         return max(minimum, min(maximum, value))
 
-    def _axis_target(self, error: float, axis: AxisConfig, gain_us: float) -> int:
+    def _axis_target(
+        self,
+        error: float,
+        axis: AxisConfig,
+        gain_us: float,
+        current_pulse: int,
+    ) -> int:
+        """Generate an incremental servo target from the current pulse.
+
+        Using the mechanical center as the base on every update can create a
+        false equilibrium before the tracked person reaches image center. Using
+        the current pulse as the base makes the control loop cumulative, so the
+        camera keeps panning until the image error reaches the dead zone.
+        """
         signed_error = -error if axis.inverted else error
-        desired = round(axis.center + signed_error * gain_us)
+        desired = round(current_pulse + signed_error * gain_us)
         return self._clamp(desired, axis.minimum, axis.maximum)
 
     def _slew(self, current: int, desired: int) -> int:
@@ -77,11 +90,13 @@ class PanTiltController:
                     observation.error_x,
                     self.pan_config,
                     self.config.pan_gain_us,
+                    self._pan_pulse,
                 )
                 desired_tilt = self._axis_target(
                     observation.error_y,
                     self.tilt_config,
                     self.config.tilt_gain_us,
+                    self._tilt_pulse,
                 )
                 state = PanTiltPlanState.TRACKING
                 message = "Generated bounded pan/tilt tracking request"
