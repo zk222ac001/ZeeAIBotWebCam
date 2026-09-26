@@ -199,9 +199,33 @@ class ActiveSpeakerFusion:
                 camera.frame_height,
                 doa_signed,
             )
+            # This is an eligibility gate, not merely a score contribution.
+            # Confidence/size/continuity cannot rescue a geometrically invalid match.
+            if (
+                not math.isfinite(angular_error)
+                or angular_error > self.config.max_match_error_degrees
+                or not math.isfinite(score)
+            ):
+                continue
             ranked.append(
                 (score, index, person, center_x, center_y, camera_angle, angular_error)
             )
+
+        if not ranked:
+            self._latest = ActiveSpeakerObservation(
+                state=ActiveSpeakerState.AMBIGUOUS,
+                sequence=self._sequence,
+                speaker_id=None,
+                confidence=None,
+                candidate_index=None,
+                center_x=None,
+                center_y=None,
+                camera_angle_degrees=None,
+                doa_degrees=audio.doa_degrees,
+                angular_error_degrees=None,
+                message="No visible person is within the maximum audio/visual angular error",
+            )
+            return self._latest
 
         ranked.sort(key=lambda item: item[0], reverse=True)
         best = ranked[0]
