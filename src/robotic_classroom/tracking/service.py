@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import threading
 import time
+from dataclasses import replace
 from typing import TYPE_CHECKING
 
 from robotic_classroom.camera.service import CameraService
@@ -38,6 +39,9 @@ class TrackingService:
         self._thread: threading.Thread | None = None
         self._stop_event = threading.Event()
         self._lock = threading.RLock()
+        self._publication_sequence = 0
+        self._last_source_observation: TrackingObservation | None = None
+        self._published_observation: TrackingObservation | None = None
 
     def set_active_speaker(self, service: ActiveSpeakerService | None) -> None:
         """Attach or clear the optional active-speaker target source."""
@@ -98,6 +102,9 @@ class TrackingService:
                 error_x=error_x,
                 error_y=error_y,
                 in_dead_zone=in_dead_zone,
+                in_dead_zone_x=abs(error_x) <= self.config.dead_zone_x,
+                in_dead_zone_y=abs(error_y) <= self.config.dead_zone_y,
+                source="active_speaker",
                 message=(
                     "Active speaker centered"
                     if in_dead_zone
@@ -129,6 +136,7 @@ class TrackingService:
                 error_y=None,
                 in_dead_zone=False,
                 message="Active speaker briefly unavailable; holding last speaker target",
+                source="active_speaker_hold",
             )
 
         with self._lock:
@@ -137,10 +145,26 @@ class TrackingService:
         return None
 
     def observation(self) -> TrackingObservation:
-        active = self._active_speaker_observation()
-        if active is not None:
-            return active
-        return self.tracker.observation
+        """Publish one counter independent of camera/fusion counter domains.
+
+        Repeated reads of unchanged source data reuse the same publication;
+        polling alone must not conceal a stalled producer. Source counters
+        remain available separately for diagnostics. This is a publication
+        sequence, not a measured frame rate or hardware acknowledgement.
+        """
+        with self._lock:
+            active = self._active_speaker_observation()
+            candidate = active if active is not None else self.tracker.observation
+            if candidate != self._last_source_observation:
+                self._publication_sequence += 1
+                self._last_source_observation = candidate
+                self._published_observation = replace(
+                    candidate,
+                    sequence=self._publication_sequence,
+                    source_sequence=candidate.sequence,
+                )
+            assert self._published_observation is not None
+            return self._published_observation
 
     def stop(self) -> None:
         self._stop_event.set()
