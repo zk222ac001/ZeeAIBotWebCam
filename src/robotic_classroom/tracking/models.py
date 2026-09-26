@@ -23,3 +23,9 @@ class TrackingObservation:
     error_y: float | None
     in_dead_zone: bool
     message: str
+    # Optional for backwards-compatible direct planner callers. Producers set
+    # each flag from the same TrackingConfig used for the combined dead zone.
+    in_dead_zone_x: bool | None = None
+    in_dead_zone_y: bool | None = None
+    source: str = "visual"
+    source_sequence: int | None = None
