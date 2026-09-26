@@ -277,6 +277,8 @@ def tracking_status() -> dict[str, object]:
     return {
         "state": observation.state.value,
         "sequence": observation.sequence,
+        "source": observation.source,
+        "source_sequence": observation.source_sequence,
         "target_id": observation.target_id,
         "confidence": observation.confidence,
         "center": (
@@ -290,6 +292,8 @@ def tracking_status() -> dict[str, object]:
             else None
         ),
         "in_dead_zone": observation.in_dead_zone,
+        "in_dead_zone_x": observation.in_dead_zone_x,
+        "in_dead_zone_y": observation.in_dead_zone_y,
         "message": observation.message,
     }
 
