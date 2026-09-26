@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import math
+
 from robotic_classroom.core.config import AxisConfig, PanTiltControlConfig
 from robotic_classroom.pan_tilt.models import AxisPlan, PanTiltPlan, PanTiltPlanState
 from robotic_classroom.tracking.models import TrackingObservation, TrackingState
@@ -75,28 +77,42 @@ class PanTiltController:
             desired_tilt = self.tilt_config.center
             message = "Pan/tilt planning disabled"
         elif observation.state == TrackingState.TRACKING:
-            if observation.error_x is None or observation.error_y is None:
+            if (
+                observation.error_x is None
+                or observation.error_y is None
+                or not math.isfinite(observation.error_x)
+                or not math.isfinite(observation.error_y)
+            ):
                 desired_pan = self._pan_pulse
                 desired_tilt = self._tilt_pulse
                 state = PanTiltPlanState.HOLDING
-                message = "Tracking target has no position error; holding plan"
-            elif observation.in_dead_zone:
+                message = "Tracking target has no finite position error; holding plan"
+            elif observation.in_dead_zone or (
+                observation.in_dead_zone_x is True and observation.in_dead_zone_y is True
+            ):
                 desired_pan = self._pan_pulse
                 desired_tilt = self._tilt_pulse
                 state = PanTiltPlanState.CENTERED
                 message = "Target is inside tracking dead zone; holding current plan"
             else:
-                desired_pan = self._axis_target(
-                    observation.error_x,
-                    self.pan_config,
-                    self.config.pan_gain_us,
-                    self._pan_pulse,
+                # An acceptable error on one axis must not accumulate while
+                # the other axis is correcting. Hold the current pulse, not
+                # the mechanical center. None retains legacy caller behavior.
+                desired_pan = (
+                    self._pan_pulse
+                    if observation.in_dead_zone_x is True
+                    else self._axis_target(
+                        observation.error_x, self.pan_config,
+                        self.config.pan_gain_us, self._pan_pulse,
+                    )
                 )
-                desired_tilt = self._axis_target(
-                    observation.error_y,
-                    self.tilt_config,
-                    self.config.tilt_gain_us,
-                    self._tilt_pulse,
+                desired_tilt = (
+                    self._tilt_pulse
+                    if observation.in_dead_zone_y is True
+                    else self._axis_target(
+                        observation.error_y, self.tilt_config,
+                        self.config.tilt_gain_us, self._tilt_pulse,
+                    )
                 )
                 state = PanTiltPlanState.TRACKING
                 message = "Generated bounded pan/tilt tracking request"
