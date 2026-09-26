@@ -171,6 +171,8 @@ class PersonTracker:
             error_y=error_y,
             in_dead_zone=in_dead_zone,
             message="Target centered" if in_dead_zone else "Tracking target in image space",
+            in_dead_zone_x=abs(error_x) <= self.config.dead_zone_x,
+            in_dead_zone_y=abs(error_y) <= self.config.dead_zone_y,
         )
         return self._last_observation
 
