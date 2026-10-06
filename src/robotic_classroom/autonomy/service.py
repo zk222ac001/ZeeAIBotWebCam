@@ -190,9 +190,11 @@ class AutonomyService:
             return self._stable_target_cycles
 
     def _execution_policy_allows(self, command) -> tuple[bool, str]:
-        if self.config.execution_policy == "rotation_only":
-            if command.forward != 0.0 or command.sideways != 0.0:
-                return False, "rotation-only execution policy blocked translation"
+        if (
+            self.config.execution_policy == "rotation_only"
+            and (command.forward != 0.0 or command.sideways != 0.0)
+        ):
+            return False, "rotation-only execution policy blocked translation"
         return True, ""
 
     def _run(self) -> None:
