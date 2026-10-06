@@ -46,14 +46,20 @@ class AutonomyService:
         self._lock = threading.RLock()
         self._armed = False
         self._lease_token: str | None = None
+        self._stable_target_id: str | None = None
+        self._stable_target_cycles = 0
         self._status = AutonomyStatus(
             enabled=config.enabled,
             mode=config.mode,
+            execution_policy=config.execution_policy,
+            pilot_validated=config.pilot_validated,
             running=False,
             armed=False,
             state=AutonomyState.DISABLED if not config.enabled else AutonomyState.IDLE,
             target_id=None,
             distance_cm=None,
+            stable_target_cycles=0,
+            required_target_stability_cycles=config.target_stability_cycles,
             planned_command=STOP_COMMAND,
             motion_executed=False,
             safety_reason="",
@@ -76,6 +82,12 @@ class AutonomyService:
         with self._lock:
             if not self.config.enabled:
                 return False, "autonomy disabled by configuration"
+            if (
+                self.config.mode == "execute"
+                and self.config.require_pilot_validation
+                and not self.config.pilot_validated
+            ):
+                return False, "classroom pilot validation required before execute mode"
             if self.config.mode == "execute":
                 if not self.safety.leases.validate(lease_token):
                     return False, "valid control lease required to arm execute mode"
@@ -84,6 +96,24 @@ class AutonomyService:
                 self._lease_token = lease_token
                 self.safety.state.set_autonomous()
             self._armed = True
+            current = self._status
+            self._status = AutonomyStatus(
+                enabled=current.enabled,
+                mode=current.mode,
+                execution_policy=current.execution_policy,
+                pilot_validated=current.pilot_validated,
+                running=current.running,
+                armed=True,
+                state=current.state,
+                target_id=current.target_id,
+                distance_cm=current.distance_cm,
+                stable_target_cycles=current.stable_target_cycles,
+                required_target_stability_cycles=current.required_target_stability_cycles,
+                planned_command=current.planned_command,
+                motion_executed=False,
+                safety_reason=current.safety_reason,
+                message="Autonomy armed; waiting for safe planner cycle",
+            )
             return True, "autonomy armed"
 
     def disarm(self) -> None:
@@ -91,10 +121,30 @@ class AutonomyService:
             token = self._lease_token
             self._armed = False
             self._lease_token = None
+            self._stable_target_id = None
+            self._stable_target_cycles = 0
             self.safety.submit_motion(STOP_COMMAND)
             if token is not None:
                 self.safety.leases.release(token)
             self.safety.state.set_idle()
+            current = self._status
+            self._status = AutonomyStatus(
+                enabled=current.enabled,
+                mode=current.mode,
+                execution_policy=current.execution_policy,
+                pilot_validated=current.pilot_validated,
+                running=current.running,
+                armed=False,
+                state=AutonomyState.IDLE,
+                target_id=current.target_id,
+                distance_cm=current.distance_cm,
+                stable_target_cycles=0,
+                required_target_stability_cycles=current.required_target_stability_cycles,
+                planned_command=STOP_COMMAND,
+                motion_executed=False,
+                safety_reason="",
+                message="Autonomy disarmed; chassis stop requested",
+            )
 
     def _publish(
         self,
@@ -102,6 +152,7 @@ class AutonomyService:
         state: AutonomyState,
         target_id: str | None,
         distance_cm: float | None,
+        stable_target_cycles: int,
         command,
         motion_executed: bool,
         safety_reason: str,
@@ -111,16 +162,38 @@ class AutonomyService:
             self._status = AutonomyStatus(
                 enabled=self.config.enabled,
                 mode=self.config.mode,
+                execution_policy=self.config.execution_policy,
+                pilot_validated=self.config.pilot_validated,
                 running=True,
                 armed=self._armed,
                 state=state,
                 target_id=target_id,
                 distance_cm=distance_cm,
+                stable_target_cycles=stable_target_cycles,
+                required_target_stability_cycles=self.config.target_stability_cycles,
                 planned_command=command,
                 motion_executed=motion_executed,
                 safety_reason=safety_reason,
                 message=message,
             )
+
+    def _update_target_stability(self, state: AutonomyState, target_id: str | None) -> int:
+        with self._lock:
+            if state is not AutonomyState.TRACKING or target_id is None:
+                self._stable_target_id = None
+                self._stable_target_cycles = 0
+            elif target_id == self._stable_target_id:
+                self._stable_target_cycles += 1
+            else:
+                self._stable_target_id = target_id
+                self._stable_target_cycles = 1
+            return self._stable_target_cycles
+
+    def _execution_policy_allows(self, command) -> tuple[bool, str]:
+        if self.config.execution_policy == "rotation_only":
+            if command.forward != 0.0 or command.sideways != 0.0:
+                return False, "rotation-only execution policy blocked translation"
+        return True, ""
 
     def _run(self) -> None:
         interval = self.config.poll_interval_ms / 1000.0
@@ -134,6 +207,7 @@ class AutonomyService:
                     state=AutonomyState.DISABLED,
                     target_id=None,
                     distance_cm=None,
+                    stable_target_cycles=0,
                     command=STOP_COMMAND,
                     motion_executed=False,
                     safety_reason="",
@@ -146,12 +220,14 @@ class AutonomyService:
             pan_tilt = self.pan_tilt.plan()
             sensors = self.hardware.sensors()
             decision = self.controller.plan(tracking, pan_tilt, sensors)
+            stable_cycles = self._update_target_stability(decision.state, decision.target_id)
 
             if not armed:
                 self._publish(
                     state=AutonomyState.IDLE,
                     target_id=decision.target_id,
                     distance_cm=decision.distance_cm,
+                    stable_target_cycles=stable_cycles,
                     command=decision.command,
                     motion_executed=False,
                     safety_reason="",
@@ -165,10 +241,49 @@ class AutonomyService:
                     state=decision.state,
                     target_id=decision.target_id,
                     distance_cm=decision.distance_cm,
+                    stable_target_cycles=stable_cycles,
                     command=decision.command,
                     motion_executed=False,
                     safety_reason="plan-only mode",
                     message=decision.reason,
+                )
+                self._stop_event.wait(interval)
+                continue
+
+            if (
+                decision.state is AutonomyState.TRACKING
+                and not decision.command.is_stop
+                and stable_cycles < self.config.target_stability_cycles
+            ):
+                self.safety.submit_motion(STOP_COMMAND, token)
+                self._publish(
+                    state=AutonomyState.HOLDING,
+                    target_id=decision.target_id,
+                    distance_cm=decision.distance_cm,
+                    stable_target_cycles=stable_cycles,
+                    command=STOP_COMMAND,
+                    motion_executed=False,
+                    safety_reason="target stability gate",
+                    message=(
+                        "Waiting for stable target "
+                        f"{stable_cycles}/{self.config.target_stability_cycles}"
+                    ),
+                )
+                self._stop_event.wait(interval)
+                continue
+
+            policy_allowed, policy_reason = self._execution_policy_allows(decision.command)
+            if not policy_allowed:
+                self.safety.submit_motion(STOP_COMMAND, token)
+                self._publish(
+                    state=AutonomyState.BLOCKED,
+                    target_id=decision.target_id,
+                    distance_cm=decision.distance_cm,
+                    stable_target_cycles=stable_cycles,
+                    command=STOP_COMMAND,
+                    motion_executed=False,
+                    safety_reason=policy_reason,
+                    message=policy_reason,
                 )
                 self._stop_event.wait(interval)
                 continue
@@ -182,6 +297,7 @@ class AutonomyService:
                     state=AutonomyState.FAULT,
                     target_id=decision.target_id,
                     distance_cm=decision.distance_cm,
+                    stable_target_cycles=0,
                     command=STOP_COMMAND,
                     motion_executed=False,
                     safety_reason="control heartbeat rejected",
@@ -195,6 +311,7 @@ class AutonomyService:
                 state=decision.state if safety_decision.allowed else AutonomyState.BLOCKED,
                 target_id=decision.target_id,
                 distance_cm=decision.distance_cm,
+                stable_target_cycles=stable_cycles,
                 command=decision.command,
                 motion_executed=bool(safety_decision.allowed and not decision.command.is_stop),
                 safety_reason=safety_decision.reason,
@@ -217,11 +334,15 @@ class AutonomyService:
             self._status = AutonomyStatus(
                 enabled=self.config.enabled,
                 mode=self.config.mode,
+                execution_policy=self.config.execution_policy,
+                pilot_validated=self.config.pilot_validated,
                 running=False,
                 armed=False,
                 state=AutonomyState.DISABLED if not self.config.enabled else AutonomyState.IDLE,
                 target_id=None,
                 distance_cm=None,
+                stable_target_cycles=0,
+                required_target_stability_cycles=self.config.target_stability_cycles,
                 planned_command=STOP_COMMAND,
                 motion_executed=False,
                 safety_reason="",
