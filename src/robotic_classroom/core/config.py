@@ -216,6 +216,20 @@ class ConferenceConfig(BaseModel):
         return self
 
 
+class ControlAccessConfig(BaseModel):
+    auth_required: bool = False
+    access_token: str | None = Field(default=None, min_length=16, repr=False, exclude=True)
+
+    @model_validator(mode="after")
+    def validate_security(self) -> ControlAccessConfig:
+        if self.auth_required and self.access_token is None:
+            raise ValueError(
+                "control authentication requires CONTROL_ACCESS_TOKEN "
+                "(minimum 16 characters)"
+            )
+        return self
+
+
 class WebConfig(BaseModel):
     host: str = "127.0.0.1"
     port: int = Field(default=8000, ge=1, le=65535)
@@ -248,6 +262,7 @@ class Settings(BaseModel):
     audio: AudioConfig = Field(default_factory=AudioConfig)
     active_speaker: ActiveSpeakerConfig = Field(default_factory=ActiveSpeakerConfig)
     conference: ConferenceConfig = Field(default_factory=ConferenceConfig)
+    control_access: ControlAccessConfig = Field(default_factory=ControlAccessConfig)
     web: WebConfig
     logging: LoggingConfig
     safety: SafetyConfig
@@ -272,6 +287,7 @@ def load_settings(config_file: str | Path | None = None) -> Settings:
     audio = raw.setdefault("audio", {})
     active_speaker = raw.setdefault("active_speaker", {})
     conference = raw.setdefault("conference", {})
+    control_access = raw.setdefault("control_access", {})
 
     if value := os.getenv("HARDWARE_MODE"):
         hardware["mode"] = value
@@ -350,5 +366,9 @@ def load_settings(config_file: str | Path | None = None) -> Settings:
         conference["ice_username"] = value
     if value := os.getenv("WEBRTC_ICE_CREDENTIAL"):
         conference["ice_credential"] = value
+    if value := os.getenv("CONTROL_AUTH_REQUIRED"):
+        control_access["auth_required"] = value.lower() in {"1", "true", "yes", "on"}
+    if value := os.getenv("CONTROL_ACCESS_TOKEN"):
+        control_access["access_token"] = value
 
     return Settings.model_validate(raw)
