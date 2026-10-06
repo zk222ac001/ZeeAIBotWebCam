@@ -201,6 +201,21 @@ class PilotTests(unittest.TestCase):
         self.assertNotIn("SECRET", json.dumps(errors))
         self.assertEqual(data, {})
 
+    def test_safety_read_failure_does_not_invent_downstream_failures(self):
+        flags = pilot.assess({}, {"safety": "HTTP 503"}, "speaker_switch")
+
+        self.assertIn("safety:read_failed", flags)
+        self.assertIn("safety:motion_state_unknown", flags)
+        self.assertNotIn("camera:not_ready", flags)
+        self.assertNotIn("audio:not_ready", flags)
+        self.assertNotIn("conference:not_running", flags)
+        self.assertNotIn("pan:range_unavailable", flags)
+
+    def test_sequence_watch_ignores_services_not_sampled_after_safety_failure(self):
+        tracker = pilot.SequenceWatch()
+
+        self.assertEqual(tracker.check({}, 0, 5), [])
+
 
 @unittest.skipUnless(which("openssl"), "OpenSSL needed only for simulated HTTPS tests")
 class HttpsTests(unittest.TestCase):
