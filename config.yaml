@@ -58,6 +58,22 @@ pan_tilt_control:
   max_step_us: 15
   hold_on_lost_target: true
 
+autonomy:
+  enabled: false
+  mode: plan_only
+  poll_interval_ms: 100
+  require_ultrasonic: true
+  search_enabled: false
+  search_rotation: 0.12
+  forward_enabled: false
+  forward_speed: 0.15
+  follow_distance_cm: 120.0
+  follow_tolerance_cm: 20.0
+  maximum_follow_distance_cm: 250.0
+  pan_recentering_deadband_us: 50
+  rotation_gain: 0.35
+  max_rotation: 0.18
+
 audio:
   enabled: true
   mode: mock
