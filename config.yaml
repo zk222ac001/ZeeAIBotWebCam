@@ -61,7 +61,11 @@ pan_tilt_control:
 autonomy:
   enabled: false
   mode: plan_only
+  execution_policy: rotation_only
   poll_interval_ms: 100
+  target_stability_cycles: 5
+  require_pilot_validation: true
+  pilot_validated: false
   require_ultrasonic: true
   search_enabled: false
   search_rotation: 0.12
