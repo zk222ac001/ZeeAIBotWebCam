@@ -60,7 +60,7 @@ pan_tilt_control:
 
 autonomy:
   enabled: true
-  mode: plan_only
+  mode: execute
   poll_interval_ms: 100
   require_ultrasonic: true
   search_enabled: false
@@ -71,8 +71,8 @@ autonomy:
   follow_tolerance_cm: 20.0
   maximum_follow_distance_cm: 250.0
   pan_recentering_deadband_us: 50
-  rotation_gain: 0.35
-  max_rotation: 0.18
+  rotation_gain: 0.25
+  max_rotation: 0.10
 
 audio:
   enabled: true
