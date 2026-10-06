@@ -67,13 +67,15 @@ class AiortcConferenceBackend:
             raise RuntimeError(
                 "Remote speaker playback is enabled but the configured ALSA output is not validated"
             )
-        if (
-            self.config.echo_management_mode == "aec_reference"
-            and not self.config.echo_reference_validated
-        ):
-            raise RuntimeError(
-                "AEC reference mode is enabled but the echo-reference path is not validated"
-            )
+        if self.config.echo_management_mode == "aec_reference":
+            if not self.config.echo_reference_enabled:
+                raise RuntimeError(
+                    "AEC reference mode is enabled but echo-reference mirroring is disabled"
+                )
+            if not self.config.echo_reference_validated:
+                raise RuntimeError(
+                    "AEC reference mode is enabled but the echo-reference path is not validated"
+                )
 
         self._running = True
 
@@ -279,6 +281,9 @@ class AiortcConferenceBackend:
         playback_running = False
         playback_frames = 0
         playback_error = ""
+        reference_running = False
+        reference_frames = 0
+        reference_error = ""
         for runtime in self._sessions.values():
             if runtime.playback is None:
                 continue
@@ -286,6 +291,9 @@ class AiortcConferenceBackend:
             playback_running = playback_running or status.running
             playback_frames += status.frames_written
             playback_error = playback_error or status.last_error
+            reference_running = reference_running or status.echo_reference_running
+            reference_frames += status.echo_reference_frames_written
+            reference_error = reference_error or status.echo_reference_last_error
 
         return {
             "microphone_publish_enabled": self.config.publish_audio,
@@ -299,6 +307,11 @@ class AiortcConferenceBackend:
             "speaker_frames_written": playback_frames,
             "speaker_last_error": playback_error,
             "echo_management_mode": self.config.echo_management_mode,
+            "echo_reference_enabled": self.config.echo_reference_enabled,
+            "echo_reference_device": self.config.echo_reference_device,
+            "echo_reference_running": reference_running,
+            "echo_reference_frames_written": reference_frames,
+            "echo_reference_last_error": reference_error,
             "echo_reference_validated": self.config.echo_reference_validated,
             "full_duplex_requested": bool(
                 self.config.publish_audio and self.config.remote_audio_playback

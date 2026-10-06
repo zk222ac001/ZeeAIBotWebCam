@@ -151,7 +151,7 @@ class TurboPiAdapter:
             +f + s - r,
         ]
         peak = max(1.0, *(abs(value) for value in raw))
-        scaled = [int(round((value / peak) * cls.MAX_MOTOR_DUTY)) for value in raw]
+        scaled = [round((value / peak) * cls.MAX_MOTOR_DUTY) for value in raw]
         return [[index + 1, duty] for index, duty in enumerate(scaled)]
 
     def drive(self, command: MotionCommand) -> None:

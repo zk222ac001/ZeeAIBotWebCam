@@ -63,7 +63,7 @@ def test_watchdog_forces_stop_after_heartbeat_expires() -> None:
 
     supervisor.start_watchdog()
     try:
-        supervisor.heartbeat()
+        assert supervisor.heartbeat(lease.token) is True
         decision = supervisor.submit_motion(MotionCommand(forward=0.2), lease.token)
 
         assert decision.allowed is True
