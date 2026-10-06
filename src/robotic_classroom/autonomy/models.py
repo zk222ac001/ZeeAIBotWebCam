@@ -31,11 +31,15 @@ class AutonomyDecision:
 class AutonomyStatus:
     enabled: bool
     mode: str
+    execution_policy: str
+    pilot_validated: bool
     running: bool
     armed: bool
     state: AutonomyState
     target_id: str | None
     distance_cm: float | None
+    stable_target_cycles: int
+    required_target_stability_cycles: int
     planned_command: MotionCommand
     motion_executed: bool
     safety_reason: str

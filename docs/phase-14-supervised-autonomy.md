@@ -62,11 +62,14 @@ The autonomy service may submit its planned chassis command through the SafetySu
 
 Execute mode:
 
-1. requires a valid control lease before arming;
-2. renews the normal heartbeat while armed;
-3. stops and disarms if the lease/heartbeat is lost;
-4. remains subject to obstacle and dead-man protection;
-5. blocks simultaneous non-zero manual chassis commands.
+1. requires the supervised classroom pilot validation gate to be explicitly complete;
+2. requires a valid control lease before arming;
+3. requires a tracked target to remain stable for the configured number of control cycles;
+4. renews the normal heartbeat while armed;
+5. stops and disarms if the lease/heartbeat is lost;
+6. remains subject to obstacle and dead-man protection;
+7. blocks simultaneous non-zero manual chassis commands;
+8. can be restricted to rotation-only execution so translation cannot be submitted.
 
 ## Initial autonomous behaviors
 
@@ -104,6 +107,10 @@ Recommended upgrades for higher autonomy:
 autonomy:
   enabled: true
   mode: plan_only
+  execution_policy: rotation_only
+  target_stability_cycles: 5
+  require_pilot_validation: true
+  pilot_validated: false
   search_enabled: false
   forward_enabled: false
 ```
@@ -134,3 +141,32 @@ curl -sk -X POST https://127.0.0.1:8000/api/autonomy/stop
 
 Do not change `mode` to `execute` until the plan-only decisions have been observed and physically
 validated with the chassis secured and sufficient clearance around the robot.
+
+
+## Phase 13 validation gate
+
+The supervised classroom pilot is a prerequisite for physical Phase 14 execute mode.
+
+If the pilot result is `INCOMPLETE`, including because `/api/safety` cannot be read,
+keep:
+
+```yaml
+mode: plan_only
+pilot_validated: false
+```
+
+Do not infer pilot completion from camera, audio, tracking, or conference behavior alone.
+The pilot must complete its requested duration with a readable safety state and the required
+human checks must be reviewed before `pilot_validated` is changed.
+
+## Target stability gate
+
+A non-zero tracking command is not eligible for execute mode until the same target remains
+selected for `target_stability_cycles` consecutive autonomy cycles. Losing or changing the
+target resets the counter to zero/one. The API exposes both the current and required counts.
+
+## Rotation-only policy
+
+`execution_policy: rotation_only` rejects any autonomy command with non-zero forward or
+sideways components before it reaches the Safety Supervisor. This is separate from
+`forward_enabled`; both safeguards are kept during the first physical autonomy stage.

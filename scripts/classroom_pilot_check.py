@@ -194,7 +194,10 @@ def read_sample(client: StatusClient) -> tuple[dict[str, Any], dict[str, str]]:
 
 def assess(values: dict[str, Any], errors: dict[str, str], phase: str) -> list[str]:
     flags = [f"{name}:read_failed" for name in errors]
-    safety = values.get("safety", {})
+    safety = values.get("safety")
+    if safety is None:
+        flags.append("safety:motion_state_unknown")
+        return flags
     if safety.get("motion_active") is True:
         flags.append("safety:motion_active")
     elif safety.get("motion_active") is not False:
@@ -204,17 +207,20 @@ def assess(values: dict[str, Any], errors: dict[str, str], phase: str) -> list[s
     if safety.get("state") not in {"idle", "emergency_stop"}:
         flags.append("safety:unexpected_state")
     for name in ("camera", "audio"):
-        item = values.get(name, {})
-        if item.get("connected") is not True or item.get("running") is not True:
+        item = values.get(name)
+        if item is not None and (
+            item.get("connected") is not True or item.get("running") is not True
+        ):
             flags.append(f"{name}:not_ready")
-    conference = values.get("conference", {})
-    if conference.get("running") is not True:
-        flags.append("conference:not_running")
-    count = conference.get("connected_sessions")
-    if not number(count):
-        flags.append("conference:session_state_unknown")
-    elif count < 1 and phase != "reconnect":
-        flags.append("conference:no_connected_session")
+    conference = values.get("conference")
+    if conference is not None:
+        if conference.get("running") is not True:
+            flags.append("conference:not_running")
+        count = conference.get("connected_sessions")
+        if not number(count):
+            flags.append("conference:session_state_unknown")
+        elif count < 1 and phase != "reconnect":
+            flags.append("conference:no_connected_session")
     # These are review observations, NOT automatic proof of a hardware fault.
     pan_tilt = values.get("pan_tilt", {})
     if pan_tilt.get("executed") is not True or pan_tilt.get("execution_error") is not False:
@@ -243,7 +249,10 @@ class SequenceWatch:
     def check(self, values: dict[str, Any], now: float, timeout: float) -> list[str]:
         flags = []
         for name in ("camera", "audio", "speaker", "tracking", "pan_tilt"):
-            sequence = values.get(name, {}).get("sequence")
+            item = values.get(name)
+            if item is None:
+                continue
+            sequence = item.get("sequence")
             if not number(sequence):
                 flags.append(f"{name}:sequence_unavailable")
                 continue
@@ -385,9 +394,24 @@ def main(argv: list[str] | None = None) -> int:
                 )
                 if errors:
                     print("Read errors: " + json.dumps(errors), flush=True)
-                if values.get("safety", {}).get("motion_active") is not False:
-                    reason = "motion_active_or_unknown"
-                    print("STOP THE PILOT: chassis state active/unknown. Use robot STOP as needed.")
+                safety = values.get("safety")
+                if "safety" in errors:
+                    reason = "safety_read_failed"
+                    print(
+                        "STOP THE PILOT: /api/safety could not be read. "
+                        "Fix the safety status connection before retrying."
+                    )
+                    break
+                if safety is None or safety.get("motion_active") is not False:
+                    reason = (
+                        "motion_active"
+                        if safety is not None and safety.get("motion_active") is True
+                        else "motion_state_unknown"
+                    )
+                    print(
+                        "STOP THE PILOT: chassis state active/unknown. "
+                        "Use robot STOP as needed."
+                    )
                     break
                 if sampled - started >= args.duration:
                     break

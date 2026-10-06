@@ -3,7 +3,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from robotic_classroom.core.config import ConferenceConfig, load_settings
+from robotic_classroom.core.config import AutonomyConfig, ConferenceConfig, load_settings
 
 
 def test_default_configuration_loads() -> None:
@@ -34,3 +34,17 @@ def test_aec_reference_monitor_configuration_is_valid() -> None:
 
     assert config.echo_reference_enabled is True
     assert config.echo_reference_device == "plughw:CARD=Array,DEV=0"
+
+
+def test_rotation_only_autonomy_rejects_forward_enable() -> None:
+    with pytest.raises(ValidationError, match="requires forward_enabled=false"):
+        AutonomyConfig(execution_policy="rotation_only", forward_enabled=True)
+
+
+def test_phase14_safe_defaults_require_pilot_validation() -> None:
+    config = AutonomyConfig()
+
+    assert config.mode == "plan_only"
+    assert config.execution_policy == "rotation_only"
+    assert config.require_pilot_validation is True
+    assert config.pilot_validated is False

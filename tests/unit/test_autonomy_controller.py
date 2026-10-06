@@ -111,8 +111,14 @@ def test_centered_target_does_not_move_forward_by_default() -> None:
 
 
 def test_forward_following_requires_explicit_enable_and_finite_range() -> None:
-    moving = controller(forward_enabled=True).plan(tracking(), plan(1500), sensors(180.0))
-    no_range = controller(forward_enabled=True, require_ultrasonic=False).plan(
+    moving = controller(execution_policy="full", forward_enabled=True).plan(
+        tracking(), plan(1500), sensors(180.0)
+    )
+    no_range = controller(
+        execution_policy="full",
+        forward_enabled=True,
+        require_ultrasonic=False,
+    ).plan(
         tracking(),
         plan(1500),
         sensors(None),
