@@ -128,7 +128,7 @@ class RemoteAudioPlayback:
                     device=self.config.echo_reference_device,
                     channels=2,
                 )
-            except Exception as exc:  # noqa: BLE001 - reference is separately gated
+            except (OSError, ValueError) as exc:
                 self._reference_last_error = str(exc)
                 self._reference_process = None
                 if self.config.echo_management_mode == "aec_reference":
