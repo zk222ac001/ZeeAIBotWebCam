@@ -1,0 +1,33 @@
+[Unit]
+Description=ZeeAIBotWebCam robotic classroom service
+Documentation=https://github.com/zk222ac001/ZeeAIBotWebCam
+Wants=network-online.target
+After=network-online.target sound.target
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=@USER@
+Group=@GROUP@
+SupplementaryGroups=@SUPPLEMENTARY_GROUPS@
+WorkingDirectory=@ROOT@
+Environment=PYTHONUNBUFFERED=1
+EnvironmentFile=-/etc/zee-robot/zee-robot.env
+
+ExecStartPre=/usr/bin/test -x @PYTHON@
+ExecStartPre=/usr/bin/test -r @ROOT@/config.pi.yaml
+ExecStartPre=/usr/bin/test -r @ROOT@/.local-certs/zee-server.crt
+ExecStartPre=/usr/bin/test -r @ROOT@/.local-certs/zee-server.key
+
+ExecStart=@ROOT@/scripts/run_pi_https.sh
+ExecStartPost=@PYTHON@ @ROOT@/scripts/service_healthcheck.py --wait 30
+
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=30
+KillSignal=SIGTERM
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target
