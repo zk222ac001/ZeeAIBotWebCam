@@ -56,6 +56,7 @@ async def test_playback_excludes_resampler_padding(monkeypatch, channels):
 
 
 def test_mono_s16le_to_reference_stereo_maps_left_and_silences_right() -> None:
+    # XVF3800 uses left-channel playback as the far-end AEC reference.
     mono = array.array("h", [1000, -2000, 3000])
     payload = mono.tobytes()
 
