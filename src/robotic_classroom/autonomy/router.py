@@ -16,11 +16,15 @@ def _status_payload(request: Request) -> dict[str, object]:
     return {
         "enabled": status.enabled,
         "mode": status.mode,
+        "execution_policy": status.execution_policy,
+        "pilot_validated": status.pilot_validated,
         "running": status.running,
         "armed": status.armed,
         "state": status.state.value,
         "target_id": status.target_id,
         "distance_cm": status.distance_cm,
+        "stable_target_cycles": status.stable_target_cycles,
+        "required_target_stability_cycles": status.required_target_stability_cycles,
         "planned_command": {
             "forward": command.forward,
             "sideways": command.sideways,
