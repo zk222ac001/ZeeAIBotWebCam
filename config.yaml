@@ -138,6 +138,10 @@ conference:
   ice_username: null
   ice_credential: null
 
+control_access:
+  auth_required: false
+  access_token: null
+
 web:
   host: 127.0.0.1
   port: 8000
