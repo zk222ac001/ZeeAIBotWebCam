@@ -15,6 +15,7 @@ from robotic_classroom.conference.factory import create_conference_backend
 from robotic_classroom.conference.router import router as conference_router
 from robotic_classroom.conference.service import ConferenceService
 from robotic_classroom.control.router import router as control_router
+from robotic_classroom.control.security import require_control_access
 from robotic_classroom.core.config import load_settings
 from robotic_classroom.fusion.service import ActiveSpeakerService
 from robotic_classroom.hardware.factory import create_hardware_service
@@ -406,6 +407,129 @@ def active_speaker_status() -> dict[str, object]:
     }
 
 
+@app.get("/api/readiness")
+async def readiness() -> dict[str, object]:
+    hardware = app.state.hardware.status()
+    camera = app.state.camera.status()
+    audio = app.state.audio.observation()
+    conference = await app.state.conference.status()
+    autonomy = app.state.autonomy.status()
+    safety = app.state.safety
+    cfg = app.state.settings
+
+    categories: dict[str, dict[str, object]] = {}
+
+    runtime_blockers = []
+    if not hardware.connected:
+        runtime_blockers.append("hardware not connected")
+    if not camera.connected or not camera.running:
+        runtime_blockers.append("camera not ready")
+    if not audio.connected or not audio.running:
+        runtime_blockers.append("audio not ready")
+    categories["runtime"] = {
+        "ready": not runtime_blockers,
+        "blockers": runtime_blockers,
+    }
+
+    telepresence_blockers = []
+    if not conference.running:
+        telepresence_blockers.append("conference service not running")
+    if not cfg.conference.publish_video:
+        telepresence_blockers.append("video publishing disabled")
+    if not cfg.conference.publish_audio or not cfg.conference.audio_input_validated:
+        telepresence_blockers.append("robot microphone publishing not validated")
+    if not cfg.conference.remote_audio_playback or not cfg.conference.audio_output_validated:
+        telepresence_blockers.append("remote speaker playback not validated")
+    categories["telepresence"] = {
+        "ready": not telepresence_blockers,
+        "blockers": telepresence_blockers,
+    }
+
+    safety_blockers = []
+    if not safety.watchdog_running:
+        safety_blockers.append("safety watchdog not running")
+    if safety.motion_active:
+        safety_blockers.append("chassis motion active")
+    if not cfg.safety.require_control_lease:
+        safety_blockers.append("control lease not required")
+    if not cfg.hardware.motor_mapping_validated:
+        safety_blockers.append("motor mapping not validated")
+    categories["safety"] = {
+        "ready": not safety_blockers,
+        "blockers": safety_blockers,
+    }
+
+    privacy_security_blockers = []
+    if cfg.privacy.recording_enabled:
+        privacy_security_blockers.append("recording enabled")
+    if cfg.privacy.face_recognition_enabled:
+        privacy_security_blockers.append("face recognition enabled")
+    if not cfg.conference.auth_required:
+        privacy_security_blockers.append("conference authentication disabled")
+    if not cfg.control_access.auth_required:
+        privacy_security_blockers.append("control authentication disabled")
+    if cfg.application.environment != "production":
+        privacy_security_blockers.append("application environment is not production")
+    categories["privacy_security"] = {
+        "ready": not privacy_security_blockers,
+        "blockers": privacy_security_blockers,
+    }
+
+    aec_blockers = []
+    if not cfg.conference.echo_reference_enabled:
+        aec_blockers.append("echo reference disabled")
+    if not cfg.conference.echo_reference_validated:
+        aec_blockers.append("acoustic echo reference not validated")
+    categories["aec"] = {
+        "ready": not aec_blockers,
+        "blockers": aec_blockers,
+    }
+
+    pilot_blockers = []
+    if not cfg.autonomy.pilot_validated:
+        pilot_blockers.append("supervised classroom pilot not validated")
+    categories["classroom_pilot"] = {
+        "ready": not pilot_blockers,
+        "blockers": pilot_blockers,
+    }
+
+    autonomy_blockers = []
+    if cfg.autonomy.mode != "execute":
+        autonomy_blockers.append("autonomy remains plan-only")
+    if cfg.autonomy.require_pilot_validation and not cfg.autonomy.pilot_validated:
+        autonomy_blockers.append("pilot validation gate not satisfied")
+    if cfg.autonomy.execution_policy == "rotation_only":
+        autonomy_blockers.append("translation intentionally disabled by rotation-only policy")
+    if not cfg.control_access.auth_required:
+        autonomy_blockers.append("control authentication disabled")
+    categories["autonomous_motion"] = {
+        "ready": not autonomy_blockers,
+        "blockers": autonomy_blockers,
+    }
+
+    production_categories = (
+        "runtime",
+        "telepresence",
+        "safety",
+        "privacy_security",
+        "aec",
+        "classroom_pilot",
+    )
+    production_ready = all(bool(categories[name]["ready"]) for name in production_categories)
+
+    return {
+        "production_ready": production_ready,
+        "autonomous_motion_ready": bool(categories["autonomous_motion"]["ready"]),
+        "categories": categories,
+        "autonomy": {
+            "mode": autonomy.mode,
+            "armed": autonomy.armed,
+            "execution_policy": autonomy.execution_policy,
+            "pilot_validated": autonomy.pilot_validated,
+        },
+    }
+
+
 @app.get("/api/safety")
 def safety_status() -> dict[str, object]:
     supervisor = app.state.safety
@@ -421,9 +545,10 @@ def safety_status() -> dict[str, object]:
 
 
 @app.post("/api/control/lease", response_model=LeaseResponse)
-def acquire_control_lease(request: LeaseRequest) -> LeaseResponse:
+def acquire_control_lease(payload: LeaseRequest, request: Request) -> LeaseResponse:
+    require_control_access(request, settings.control_access)
     try:
-        lease = app.state.safety.acquire_control_lease(request.owner)
+        lease = app.state.safety.acquire_control_lease(payload.owner)
     except RuntimeError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     return LeaseResponse(
