@@ -98,6 +98,31 @@ class PanTiltControlConfig(BaseModel):
     hold_on_lost_target: bool = True
 
 
+class AutonomyConfig(BaseModel):
+    enabled: bool = False
+    mode: Literal["plan_only", "execute"] = "plan_only"
+    poll_interval_ms: int = Field(default=100, ge=50, le=1000)
+    require_ultrasonic: bool = True
+    search_enabled: bool = False
+    search_rotation: float = Field(default=0.12, ge=0.0, le=0.30)
+    forward_enabled: bool = False
+    forward_speed: float = Field(default=0.15, gt=0.0, le=0.30)
+    follow_distance_cm: float = Field(default=120.0, gt=30.0, le=300.0)
+    follow_tolerance_cm: float = Field(default=20.0, ge=5.0, le=100.0)
+    maximum_follow_distance_cm: float = Field(default=250.0, gt=30.0, le=500.0)
+    pan_recentering_deadband_us: int = Field(default=50, ge=0, le=300)
+    rotation_gain: float = Field(default=0.35, ge=0.0, le=1.0)
+    max_rotation: float = Field(default=0.18, gt=0.0, le=0.30)
+
+    @model_validator(mode="after")
+    def validate_follow_distances(self) -> AutonomyConfig:
+        if self.maximum_follow_distance_cm <= self.follow_distance_cm:
+            raise ValueError(
+                "maximum_follow_distance_cm must be greater than follow_distance_cm"
+            )
+        return self
+
+
 class AudioConfig(BaseModel):
     enabled: bool = True
     mode: Literal["mock", "xvf3800_usb"] = "mock"
@@ -213,6 +238,7 @@ class Settings(BaseModel):
     camera: CameraConfig = Field(default_factory=CameraConfig)
     tracking: TrackingConfig = Field(default_factory=TrackingConfig)
     pan_tilt_control: PanTiltControlConfig = Field(default_factory=PanTiltControlConfig)
+    autonomy: AutonomyConfig = Field(default_factory=AutonomyConfig)
     audio: AudioConfig = Field(default_factory=AudioConfig)
     active_speaker: ActiveSpeakerConfig = Field(default_factory=ActiveSpeakerConfig)
     conference: ConferenceConfig = Field(default_factory=ConferenceConfig)
@@ -236,6 +262,7 @@ def load_settings(config_file: str | Path | None = None) -> Settings:
     camera = raw.setdefault("camera", {})
     tracking = raw.setdefault("tracking", {})
     pan_tilt_control = raw.setdefault("pan_tilt_control", {})
+    autonomy = raw.setdefault("autonomy", {})
     audio = raw.setdefault("audio", {})
     active_speaker = raw.setdefault("active_speaker", {})
     conference = raw.setdefault("conference", {})
@@ -260,6 +287,14 @@ def load_settings(config_file: str | Path | None = None) -> Settings:
         pan_tilt_control["enabled"] = value.lower() in {"1", "true", "yes", "on"}
     if value := os.getenv("PAN_TILT_CONTROL_MODE"):
         pan_tilt_control["mode"] = value
+    if value := os.getenv("AUTONOMY_ENABLED"):
+        autonomy["enabled"] = value.lower() in {"1", "true", "yes", "on"}
+    if value := os.getenv("AUTONOMY_MODE"):
+        autonomy["mode"] = value
+    if value := os.getenv("AUTONOMY_SEARCH_ENABLED"):
+        autonomy["search_enabled"] = value.lower() in {"1", "true", "yes", "on"}
+    if value := os.getenv("AUTONOMY_FORWARD_ENABLED"):
+        autonomy["forward_enabled"] = value.lower() in {"1", "true", "yes", "on"}
     if value := os.getenv("AUDIO_MODE"):
         audio["mode"] = value
     if value := os.getenv("AUDIO_ENABLED"):
