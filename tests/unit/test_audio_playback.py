@@ -4,7 +4,10 @@ from unittest.mock import Mock
 
 import pytest
 
-from robotic_classroom.conference.audio_playback import RemoteAudioPlayback
+from robotic_classroom.conference.audio_playback import (
+    RemoteAudioPlayback,
+    mono_s16le_to_reference_stereo,
+)
 from robotic_classroom.core.config import ConferenceConfig
 
 
@@ -49,3 +52,15 @@ async def test_playback_excludes_resampler_padding(monkeypatch, channels):
 
     assert captured == [bytes(960 * channels * 2)]
     assert playback.status().frames_written == 1
+
+
+def test_mono_s16le_to_reference_stereo_maps_left_and_silences_right():
+    import array
+
+    mono = array.array("h", [1000, -2000, 3000])
+    payload = mono.tobytes()
+
+    stereo = array.array("h")
+    stereo.frombytes(mono_s16le_to_reference_stereo(payload))
+
+    assert list(stereo) == [1000, 0, -2000, 0, 3000, 0]
