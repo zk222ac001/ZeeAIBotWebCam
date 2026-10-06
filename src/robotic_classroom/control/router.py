@@ -33,11 +33,13 @@ def submit_motion(payload: MotionRequest, request: Request) -> dict[str, object]
         rotation=payload.rotation,
     )
     autonomy = getattr(request.app.state, "autonomy", None)
-    if autonomy is not None and autonomy.status().armed and not command.is_stop:
-        raise HTTPException(
-            status_code=409,
-            detail="autonomy is armed; stop autonomy before manual motion",
-        )
+    if autonomy is not None:
+        autonomy_status = autonomy.status()
+        if autonomy_status.armed and autonomy_status.mode == "execute" and not command.is_stop:
+            raise HTTPException(
+                status_code=409,
+                detail="execute-mode autonomy is armed; stop autonomy before manual motion",
+            )
     decision = request.app.state.safety.submit_motion(command, payload.token)
 
     if not decision.allowed:
