@@ -8,6 +8,7 @@ class RobotState(str, Enum):
     IDLE = "idle"
     MANUAL = "manual"
     TRACKING = "tracking"
+    AUTONOMOUS = "autonomous"
     EMERGENCY_STOP = "emergency_stop"
     FAULT = "fault"
     SHUTDOWN = "shutdown"
@@ -32,6 +33,10 @@ class RobotStateMachine:
     def set_tracking(self) -> None:
         if self._state == RobotState.IDLE:
             self._state = RobotState.TRACKING
+
+    def set_autonomous(self) -> None:
+        if self._state == RobotState.IDLE:
+            self._state = RobotState.AUTONOMOUS
 
     def emergency_stop(self) -> None:
         self._state = RobotState.EMERGENCY_STOP
