@@ -278,6 +278,7 @@ def load_settings(config_file: str | Path | None = None) -> Settings:
     with path.open("r", encoding="utf-8") as handle:
         raw = yaml.safe_load(handle) or {}
 
+    application = raw.setdefault("application", {})
     hardware = raw.setdefault("hardware", {})
     pan_tilt = hardware.setdefault("pan_tilt", {})
     camera = raw.setdefault("camera", {})
@@ -289,6 +290,8 @@ def load_settings(config_file: str | Path | None = None) -> Settings:
     conference = raw.setdefault("conference", {})
     control_access = raw.setdefault("control_access", {})
 
+    if value := os.getenv("APPLICATION_ENVIRONMENT"):
+        application["environment"] = value
     if value := os.getenv("HARDWARE_MODE"):
         hardware["mode"] = value
     if value := os.getenv("TURBOPI_VENDOR_PATH"):
