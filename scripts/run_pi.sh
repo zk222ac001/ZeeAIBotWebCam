@@ -72,6 +72,6 @@ export PAN_TILT_CONTROL_MODE=execute
 printf '%s\n' 'Starting ZeeAIBotWebCam with Raspberry Pi hardware profile...'
 printf '%s\n' 'PAN:  channel 1, 1350 left, 1500 center, 1650 right'
 printf '%s\n' 'TILT: channel 2, 1350 up,   1500 center, 1650 down'
-printf '%s\n' 'Chassis motion remains disabled.'
+printf '%s\n' 'Autonomous chassis execution remains gated by config.pi.yaml.'
 
 exec python -m robotic_classroom.main
