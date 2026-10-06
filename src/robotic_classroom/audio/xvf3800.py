@@ -155,7 +155,7 @@ class XVF3800USBBackend:
             )
             _, auto_selected = struct.unpack("<ff", payload)
             return self._radians_to_degrees(auto_selected)
-        except Exception:
+        except (RuntimeError, struct.error, ValueError):
             # Keep the primary DOA_VALUE path available as a safe fallback.
             return None
 
