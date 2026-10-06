@@ -117,7 +117,15 @@ class AutonomyController:
                     sensors,
                 )
 
-            assert distance is not None
+            if distance is None or not math.isfinite(distance):
+                return self._decision(
+                    AutonomyState.HOLDING,
+                    STOP_COMMAND,
+                    "Target centered but no finite range is available for following",
+                    tracking,
+                    sensors,
+                )
+
             if distance > self.config.maximum_follow_distance_cm:
                 return self._decision(
                     AutonomyState.HOLDING,
