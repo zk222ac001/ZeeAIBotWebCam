@@ -13,7 +13,12 @@ import pytest
 from robotic_classroom.audio.models import AudioObservation, SpeechState
 from robotic_classroom.camera.models import BoundingBox, CameraSnapshot, PersonDetection
 from robotic_classroom.camera.service import CameraService
-from robotic_classroom.core.config import ActiveSpeakerConfig, AxisConfig, PanTiltControlConfig, TrackingConfig
+from robotic_classroom.core.config import (
+    ActiveSpeakerConfig,
+    AxisConfig,
+    PanTiltControlConfig,
+    TrackingConfig,
+)
 from robotic_classroom.fusion.active_speaker import ActiveSpeakerFusion
 from robotic_classroom.fusion.models import ActiveSpeakerObservation, ActiveSpeakerState
 from robotic_classroom.pan_tilt.controller import PanTiltController
@@ -287,7 +292,7 @@ def test_tracking_status_serializer_exposes_source_and_axis_flags():
     module = ast.fix_missing_locations(ast.Module(body=[function], type_ignores=[]))
     tracking_service = service()
     namespace = {"app": SimpleNamespace(state=SimpleNamespace(tracking=tracking_service))}
-    exec(compile(module, str(path), "exec"), namespace)
+    exec(compile(module, str(path), "exec"), namespace)  # noqa: S102 - local parsed test code
     output = namespace["tracking_status"]()
     assert output["source"] == "visual"
     assert output["source_sequence"] == 5000
