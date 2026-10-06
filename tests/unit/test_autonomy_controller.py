@@ -20,7 +20,7 @@ def tracking(
         center_y=0.5 if target_id else None,
         error_x=0.0 if target_id else None,
         error_y=0.0 if target_id else None,
-        in_dead_zone=True if target_id else False,
+        in_dead_zone=bool(target_id),
         message="test",
     )
 
