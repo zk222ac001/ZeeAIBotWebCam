@@ -85,7 +85,8 @@ class PilotTests(unittest.TestCase):
     def test_missing_and_malformed_fields_do_not_crash(self):
         clean = pilot.project("pan_tilt", {"pan": [], "execution": None})
         self.assertIsNone(clean["pan"])
-        self.assertIn("pan:range_unavailable", pilot.assess({}, {}, "speaker_switch"))
+        data = {"safety": values()["safety"], "pan_tilt": clean}
+        self.assertIn("pan:range_unavailable", pilot.assess(data, {}, "speaker_switch"))
 
     def test_connected_configuration_alone_is_insufficient(self):
         data = values()
