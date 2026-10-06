@@ -101,7 +101,11 @@ class PanTiltControlConfig(BaseModel):
 class AutonomyConfig(BaseModel):
     enabled: bool = False
     mode: Literal["plan_only", "execute"] = "plan_only"
+    execution_policy: Literal["rotation_only", "full"] = "rotation_only"
     poll_interval_ms: int = Field(default=100, ge=50, le=1000)
+    target_stability_cycles: int = Field(default=5, ge=1, le=50)
+    require_pilot_validation: bool = True
+    pilot_validated: bool = False
     require_ultrasonic: bool = True
     search_enabled: bool = False
     search_rotation: float = Field(default=0.12, ge=0.0, le=0.30)
@@ -115,11 +119,13 @@ class AutonomyConfig(BaseModel):
     max_rotation: float = Field(default=0.18, gt=0.0, le=0.30)
 
     @model_validator(mode="after")
-    def validate_follow_distances(self) -> AutonomyConfig:
+    def validate_autonomy(self) -> AutonomyConfig:
         if self.maximum_follow_distance_cm <= self.follow_distance_cm:
             raise ValueError(
                 "maximum_follow_distance_cm must be greater than follow_distance_cm"
             )
+        if self.execution_policy == "rotation_only" and self.forward_enabled:
+            raise ValueError("rotation_only execution policy requires forward_enabled=false")
         return self
 
 
