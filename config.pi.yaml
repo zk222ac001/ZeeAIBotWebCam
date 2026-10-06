@@ -102,6 +102,8 @@ conference:
   audio_output_validated: true
   remote_audio_sample_rate: 48000
   remote_audio_channels: 1
+  echo_reference_enabled: false
+  echo_reference_device: "plughw:CARD=Array,DEV=0"
   echo_management_mode: monitor
   echo_reference_validated: false
   probe_media_devices: true
