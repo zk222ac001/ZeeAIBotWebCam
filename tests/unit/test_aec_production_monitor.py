@@ -2,6 +2,7 @@ from scripts.aec_production_monitor import Snapshot
 
 
 def test_snapshot_maps_audio_pipeline_payload() -> None:
+    # Mirrors the fields exposed by /api/conference/audio-pipeline.
     payload = {
         "speaker_playback_running": True,
         "speaker_frames_written": 123,
