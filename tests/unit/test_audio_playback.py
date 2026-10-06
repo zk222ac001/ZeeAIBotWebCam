@@ -1,3 +1,4 @@
+import array
 import asyncio
 from io import BytesIO
 from unittest.mock import Mock
@@ -54,9 +55,7 @@ async def test_playback_excludes_resampler_padding(monkeypatch, channels):
     assert playback.status().frames_written == 1
 
 
-def test_mono_s16le_to_reference_stereo_maps_left_and_silences_right():
-    import array
-
+def test_mono_s16le_to_reference_stereo_maps_left_and_silences_right() -> None:
     mono = array.array("h", [1000, -2000, 3000])
     payload = mono.tobytes()
 
