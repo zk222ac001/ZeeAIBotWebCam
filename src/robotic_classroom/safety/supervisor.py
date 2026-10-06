@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 import threading
+from dataclasses import dataclass
 
 from robotic_classroom.control.commands import MotionCommand
 from robotic_classroom.control.lease import ControlLease, ControlLeaseManager
@@ -100,9 +100,8 @@ class SafetySupervisor:
     def heartbeat(self, lease_token: str | None = None) -> bool:
         """Accept a heartbeat and renew the lease atomically when required."""
         with self._lock:
-            if self.settings.safety.require_control_lease:
-                if not self.leases.renew(lease_token):
-                    return False
+            if self.settings.safety.require_control_lease and not self.leases.renew(lease_token):
+                return False
             self.deadman.heartbeat()
             return True
 
