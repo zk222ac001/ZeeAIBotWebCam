@@ -1,10 +1,12 @@
 import importlib.util
+import sys
 from pathlib import Path
 
 SCRIPT = Path(__file__).resolve().parents[2] / "scripts/aec_production_monitor.py"
 SPEC = importlib.util.spec_from_file_location("aec_production_monitor", SCRIPT)
 assert SPEC is not None and SPEC.loader is not None
 monitor = importlib.util.module_from_spec(SPEC)
+sys.modules[SPEC.name] = monitor
 SPEC.loader.exec_module(monitor)
 
 
