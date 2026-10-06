@@ -6,9 +6,9 @@ from fastapi import FastAPI, HTTPException, Response
 from pydantic import BaseModel, Field
 
 from robotic_classroom.audio.factory import create_audio_backend
+from robotic_classroom.audio.service import AudioService
 from robotic_classroom.autonomy.router import router as autonomy_router
 from robotic_classroom.autonomy.service import AutonomyService
-from robotic_classroom.audio.service import AudioService
 from robotic_classroom.camera.factory import create_camera_backend
 from robotic_classroom.camera.service import CameraService
 from robotic_classroom.conference.factory import create_conference_backend
