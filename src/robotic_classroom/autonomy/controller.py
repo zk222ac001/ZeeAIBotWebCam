@@ -3,7 +3,7 @@ from __future__ import annotations
 import math
 
 from robotic_classroom.autonomy.models import AutonomyDecision, AutonomyState
-from robotic_classroom.control.commands import MotionCommand, STOP_COMMAND
+from robotic_classroom.control.commands import STOP_COMMAND, MotionCommand
 from robotic_classroom.core.config import AutonomyConfig, AxisConfig
 from robotic_classroom.hardware.models import SensorSnapshot
 from robotic_classroom.pan_tilt.models import PanTiltPlan
