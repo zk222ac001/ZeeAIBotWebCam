@@ -6,6 +6,8 @@ from fastapi import FastAPI, HTTPException, Response
 from pydantic import BaseModel, Field
 
 from robotic_classroom.audio.factory import create_audio_backend
+from robotic_classroom.autonomy.router import router as autonomy_router
+from robotic_classroom.autonomy.service import AutonomyService
 from robotic_classroom.audio.service import AudioService
 from robotic_classroom.camera.factory import create_camera_backend
 from robotic_classroom.camera.service import CameraService
@@ -104,6 +106,16 @@ async def lifespan(app: FastAPI):
 
     supervisor.start_watchdog()
 
+    autonomy = AutonomyService(
+        settings.autonomy,
+        settings.hardware.pan_tilt.pan,
+        tracking,
+        pan_tilt,
+        hardware,
+        supervisor,
+    )
+    autonomy.start()
+
     app.state.hardware = hardware
     app.state.safety = supervisor
     app.state.camera = camera
@@ -115,10 +127,12 @@ async def lifespan(app: FastAPI):
     app.state.active_speaker = active_speaker
     app.state.conference = conference
     app.state.conference_start_error = conference_start_error
+    app.state.autonomy = autonomy
 
     try:
         yield
     finally:
+        autonomy.stop()
         supervisor.emergency_stop()
         supervisor.stop_watchdog()
         await conference.stop()
@@ -139,6 +153,7 @@ app = FastAPI(
 )
 app.include_router(conference_router)
 app.include_router(control_router)
+app.include_router(autonomy_router)
 
 
 @app.get("/health")
@@ -150,6 +165,7 @@ def health() -> dict[str, object]:
     pan_tilt_execution = app.state.pan_tilt.execution_status()
     audio_status = app.state.audio.observation()
     active_speaker_status = app.state.active_speaker.observation()
+    autonomy_status = app.state.autonomy.status()
     return {
         "status": "ok",
         "application": settings.application.name,
@@ -203,6 +219,13 @@ def health() -> dict[str, object]:
             "auth_required": settings.conference.auth_required,
             "remote_audio_playback": settings.conference.remote_audio_playback,
             "message": app.state.conference_start_error,
+        },
+        "autonomy": {
+            "enabled": autonomy_status.enabled,
+            "mode": autonomy_status.mode,
+            "armed": autonomy_status.armed,
+            "state": autonomy_status.state.value,
+            "motion_executed": autonomy_status.motion_executed,
         },
         "robot_state": app.state.safety.state.state.value,
         "motion_enabled": settings.safety.motion_enabled,
