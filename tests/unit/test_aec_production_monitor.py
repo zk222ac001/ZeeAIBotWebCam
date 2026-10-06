@@ -1,4 +1,11 @@
-from scripts.aec_production_monitor import Snapshot
+import importlib.util
+from pathlib import Path
+
+SCRIPT = Path(__file__).resolve().parents[2] / "scripts/aec_production_monitor.py"
+SPEC = importlib.util.spec_from_file_location("aec_production_monitor", SCRIPT)
+assert SPEC is not None and SPEC.loader is not None
+monitor = importlib.util.module_from_spec(SPEC)
+SPEC.loader.exec_module(monitor)
 
 
 def test_snapshot_maps_audio_pipeline_payload() -> None:
@@ -15,7 +22,7 @@ def test_snapshot_maps_audio_pipeline_payload() -> None:
         "echo_management_mode": "monitor",
     }
 
-    snapshot = Snapshot.from_payload(payload)
+    snapshot = monitor.Snapshot.from_payload(payload)
 
     assert snapshot.speaker_running is True
     assert snapshot.speaker_frames == 123
