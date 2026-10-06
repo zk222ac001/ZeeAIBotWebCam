@@ -159,6 +159,8 @@ class ConferenceConfig(BaseModel):
     remote_audio_sample_rate: int = Field(default=48000, ge=8000, le=96000)
     remote_audio_channels: Literal[1, 2] = 1
 
+    echo_reference_enabled: bool = False
+    echo_reference_device: str = "default"
     echo_management_mode: Literal["off", "monitor", "aec_reference"] = "monitor"
     echo_reference_validated: bool = False
 
@@ -176,6 +178,10 @@ class ConferenceConfig(BaseModel):
             raise ValueError(
                 "conference authentication requires CONFERENCE_ACCESS_TOKEN (minimum 16 characters)"
             )
+        if self.echo_reference_enabled and self.remote_audio_channels != 1:
+            raise ValueError("echo-reference mirroring currently requires mono remote audio")
+        if self.echo_management_mode == "aec_reference" and not self.echo_reference_enabled:
+            raise ValueError("aec_reference mode requires echo_reference_enabled=true")
         return self
 
 
@@ -285,6 +291,10 @@ def load_settings(config_file: str | Path | None = None) -> Settings:
         conference["audio_output_device"] = value
     if value := os.getenv("CONFERENCE_AUDIO_OUTPUT_VALIDATED"):
         conference["audio_output_validated"] = value.lower() in {"1", "true", "yes", "on"}
+    if value := os.getenv("CONFERENCE_ECHO_REFERENCE_ENABLED"):
+        conference["echo_reference_enabled"] = value.lower() in {"1", "true", "yes", "on"}
+    if value := os.getenv("CONFERENCE_ECHO_REFERENCE_DEVICE"):
+        conference["echo_reference_device"] = value
     if value := os.getenv("CONFERENCE_ECHO_MANAGEMENT_MODE"):
         conference["echo_management_mode"] = value
     if value := os.getenv("CONFERENCE_ECHO_REFERENCE_VALIDATED"):
