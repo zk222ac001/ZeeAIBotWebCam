@@ -1,6 +1,7 @@
 """Offline tests: no Raspberry Pi, motor SDK, or real microphone/camera is used."""
 from __future__ import annotations
 
+import argparse
 import contextlib
 import copy
 import importlib.util
@@ -189,7 +190,7 @@ class PilotTests(unittest.TestCase):
 
     def test_cli_rejects_nan_and_negative(self):
         for value in ("nan", "inf", "-1", "0"):
-            with self.subTest(value=value), self.assertRaises(Exception):
+            with self.subTest(value=value), self.assertRaises(argparse.ArgumentTypeError):
                 pilot.finite_positive(value)
 
     def test_read_failure_does_not_leak_error_details(self):
