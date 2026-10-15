@@ -88,7 +88,7 @@ def test_target_stability_requires_consecutive_same_target() -> None:
         AutonomyConfig(enabled=True, target_stability_cycles=3)
     )
 
-    assert service._update_target_stability(AutonomyState.TRACKING, "Person-01") == 1
-    assert service._update_target_stability(AutonomyState.TRACKING, "Person-01") == 2
-    assert service._update_target_stability(AutonomyState.TRACKING, "Person-02") == 1
-    assert service._update_target_stability(AutonomyState.TARGET_LOST, None) == 0
+    assert service._update_target_stability(AutonomyState.TRACKING, "Person-01", 1) == 1
+    assert service._update_target_stability(AutonomyState.TRACKING, "Person-01", 2) == 2
+    assert service._update_target_stability(AutonomyState.TRACKING, "Person-02", 3) == 1
+    assert service._update_target_stability(AutonomyState.TARGET_LOST, None, 4) == 0

@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
+from time import monotonic
 
 
 class ActiveSpeakerState(str, Enum):
@@ -26,3 +27,4 @@ class ActiveSpeakerObservation:
     doa_degrees: float | None
     angular_error_degrees: float | None
     message: str
+    timestamp_monotonic: float = field(default_factory=monotonic)

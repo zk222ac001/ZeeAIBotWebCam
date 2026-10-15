@@ -64,8 +64,8 @@ def control_page() -> str:
       </div>
 
       <button class="estop" id="estopBtn">EMERGENCY STOP</button>
-      <button class="reset" id="resetBtn" disabled>Reset Emergency Stop</button>
-      <p class="hint">Reset requires a fresh authorized control lease. The button only becomes available while the robot is in emergency-stop state.</p>
+      <button class="reset" id="resetBtn" disabled>Reset Stop / Fault</button>
+      <p class="hint">Reset requires a fresh authorized control lease. The button only becomes available while the robot is in emergency-stop or fault state.</p>
     </section>
 
     <section class="card">
@@ -238,7 +238,7 @@ document.getElementById('estopBtn').onclick = async () => {
     setMoveButtonsEnabled(false);
     document.getElementById('leaseMetric').textContent = 'cleared';
     document.getElementById('leaseStatus').textContent = 'Lease cleared by emergency stop';
-    setMessage('EMERGENCY STOP ACTIVE. Acquire fresh control, then press Reset Emergency Stop.');
+    setMessage('EMERGENCY STOP ACTIVE. Acquire fresh control, then press Reset Stop / Fault.');
     await refreshStatus();
   } catch (error) {
     setMessage(`Emergency-stop request error: ${error.message}`);
@@ -246,8 +246,8 @@ document.getElementById('estopBtn').onclick = async () => {
 };
 
 async function resetEmergencyStop() {
-  if (currentRobotState !== 'emergency_stop') {
-    setMessage('Robot is not currently in emergency-stop state.');
+  if (!['emergency_stop', 'fault'].includes(currentRobotState)) {
+    setMessage('Robot is not currently in emergency-stop or fault state.');
     return;
   }
 
@@ -292,7 +292,7 @@ async function refreshStatus() {
     document.getElementById('heartbeat').textContent = safety.heartbeat_fresh ? 'fresh' : 'expired';
     document.getElementById('watchdog').textContent = safety.watchdog_running ? 'running' : 'NOT RUNNING';
     document.getElementById('obstacleLimit').textContent = `${Number(safety.minimum_obstacle_distance_cm).toFixed(1)} cm`;
-    document.getElementById('resetBtn').disabled = safety.state !== 'emergency_stop';
+    document.getElementById('resetBtn').disabled = !['emergency_stop', 'fault'].includes(safety.state);
 
     if (safety.state !== 'idle' || !safety.motion_enabled || !safety.watchdog_running) {
       setMoveButtonsEnabled(false);

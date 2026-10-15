@@ -7,6 +7,7 @@ from robotic_classroom.hardware.interface import HardwareService
 from robotic_classroom.pan_tilt.controller import PanTiltController
 from robotic_classroom.pan_tilt.executor import PanTiltExecutionStatus, PanTiltExecutor
 from robotic_classroom.pan_tilt.models import PanTiltPlan
+from robotic_classroom.safety.supervisor import SafetySupervisor
 from robotic_classroom.tracking.service import TrackingService
 
 
@@ -22,12 +23,13 @@ class PanTiltPlanningService:
         *,
         hardware: HardwareService | None = None,
         calibration: PanTiltConfig | None = None,
+        safety: SafetySupervisor | None = None,
     ) -> None:
         self.tracking = tracking
         self.config = config
         self.controller = PanTiltController(config, pan, tilt)
         self.executor = (
-            PanTiltExecutor(hardware, config, calibration)
+            PanTiltExecutor(hardware, config, calibration, safety)
             if hardware is not None and calibration is not None
             else None
         )

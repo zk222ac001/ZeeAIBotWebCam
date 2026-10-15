@@ -70,6 +70,7 @@ class CameraConfig(BaseModel):
 
 
 class TrackingConfig(BaseModel):
+    observation_timeout_ms: int = Field(default=1000, ge=100, le=5000)
     enabled: bool = True
     poll_interval_ms: int = Field(default=50, ge=20, le=1000)
     smoothing_alpha: float = Field(default=0.35, gt=0.0, le=1.0)
@@ -143,6 +144,7 @@ class AudioConfig(BaseModel):
 
 
 class ActiveSpeakerConfig(BaseModel):
+    observation_timeout_ms: int = Field(default=1000, ge=100, le=5000)
     enabled: bool = True
     poll_interval_ms: int = Field(default=100, ge=50, le=2000)
     geometry_calibrated: bool = False
@@ -240,6 +242,7 @@ class LoggingConfig(BaseModel):
 
 
 class SafetyConfig(BaseModel):
+    sensor_timeout_ms: int = Field(default=1000, ge=100, le=5000)
     motion_enabled: bool = False
     minimum_obstacle_distance_cm: float = Field(default=30.0, gt=0)
     heartbeat_timeout_ms: int = Field(default=750, ge=100, le=10_000)

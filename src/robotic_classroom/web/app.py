@@ -68,6 +68,7 @@ async def lifespan(app: FastAPI):
         settings.hardware.pan_tilt.tilt,
         hardware=hardware,
         calibration=settings.hardware.pan_tilt,
+        safety=supervisor,
     )
     pan_tilt.start()
 
@@ -242,7 +243,9 @@ def ready() -> dict[str, str]:
 
 @app.get("/api/sensors")
 def sensors() -> dict[str, object]:
-    snapshot = app.state.hardware.sensors()
+    snapshot = app.state.safety.sensor_snapshot()
+    if snapshot is None:
+        return {"battery_voltage": None, "distance_cm": None, "infrared": None}
     return {
         "battery_voltage": snapshot.battery_voltage,
         "distance_cm": snapshot.distance_cm,
@@ -568,6 +571,7 @@ def heartbeat(request: LeaseTokenRequest) -> dict[str, str]:
 @app.post("/api/control/emergency-stop")
 def emergency_stop() -> dict[str, str]:
     app.state.safety.emergency_stop()
+    app.state.autonomy.disarm()
     return {"status": "emergency stop active"}
 
 

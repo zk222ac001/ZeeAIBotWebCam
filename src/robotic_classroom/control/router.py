@@ -34,6 +34,8 @@ def submit_motion(payload: MotionRequest, request: Request) -> dict[str, object]
     )
     autonomy = getattr(request.app.state, "autonomy", None)
     if autonomy is not None:
+        if command.is_stop:
+            autonomy.disarm()
         autonomy_status = autonomy.status()
         if autonomy_status.armed and autonomy_status.mode == "execute" and not command.is_stop:
             raise HTTPException(

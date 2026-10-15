@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from robotic_classroom.core.config import PanTiltConfig, PanTiltControlConfig
 from robotic_classroom.hardware.interface import HardwareService
 from robotic_classroom.pan_tilt.models import PanTiltPlan
+from robotic_classroom.safety.supervisor import SafetySupervisor
 
 
 @dataclass(frozen=True, slots=True)
@@ -31,8 +32,10 @@ class PanTiltExecutor:
         hardware: HardwareService,
         control: PanTiltControlConfig,
         calibration: PanTiltConfig,
+        safety: SafetySupervisor | None = None,
     ) -> None:
         self.hardware = hardware
+        self.safety = safety
         self.control = control
         self.calibration = calibration
         self._last_pan_pulse: int | None = None
@@ -47,7 +50,9 @@ class PanTiltExecutor:
     @property
     def ready(self) -> bool:
         return bool(
-            self.requested
+            self.safety is not None
+            and self.control.enabled
+            and self.requested
             and self.calibration.enabled
             and self.calibration.calibration_validated
         )
@@ -57,8 +62,12 @@ class PanTiltExecutor:
             self._executed = False
             return False
         try:
-            self.hardware.set_pan_pulse(plan.pan.planned_pulse)
-            self.hardware.set_tilt_pulse(plan.tilt.planned_pulse)
+            assert self.safety is not None
+            decision = self.safety.submit_pan_tilt(plan)
+            if not decision.allowed:
+                self._last_error = decision.reason
+                self._executed = False
+                return False
             self._last_pan_pulse = plan.pan.planned_pulse
             self._last_tilt_pulse = plan.tilt.planned_pulse
             self._last_error = ""

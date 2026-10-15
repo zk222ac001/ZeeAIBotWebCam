@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import math
+from dataclasses import replace
 
 from robotic_classroom.audio.models import AudioObservation
 from robotic_classroom.camera.models import CameraSnapshot, PersonDetection
 from robotic_classroom.core.config import ActiveSpeakerConfig
+from robotic_classroom.core.freshness import is_fresh
 from robotic_classroom.fusion.models import ActiveSpeakerObservation, ActiveSpeakerState
 
 
@@ -98,6 +100,18 @@ class ActiveSpeakerFusion:
         audio: AudioObservation,
     ) -> ActiveSpeakerObservation:
         self._sequence += 1
+
+        if (not camera.connected or not audio.connected or not audio.running
+            or not is_fresh(camera.timestamp_monotonic, self.config.observation_timeout_ms)
+            or not is_fresh(audio.timestamp_monotonic, self.config.observation_timeout_ms)):
+            self._latest = replace(
+                self._latest, state=ActiveSpeakerState.NO_VISIBLE_CANDIDATE,
+                sequence=self._sequence, speaker_id=None, candidate_index=None,
+                center_x=None, center_y=None, confidence=None,
+                timestamp_monotonic=min(camera.timestamp_monotonic, audio.timestamp_monotonic),
+                message="Camera/audio unavailable or stale",
+            )
+            return self._latest
 
         if not self.config.enabled:
             self._latest = ActiveSpeakerObservation(
@@ -253,6 +267,7 @@ class ActiveSpeakerFusion:
         self._last_center_y = center_y
         self._latest = ActiveSpeakerObservation(
             state=ActiveSpeakerState.SPEAKER_SELECTED,
+            timestamp_monotonic=min(camera.timestamp_monotonic, audio.timestamp_monotonic),
             sequence=self._sequence,
             speaker_id=self._speaker_id,
             confidence=best_score,
