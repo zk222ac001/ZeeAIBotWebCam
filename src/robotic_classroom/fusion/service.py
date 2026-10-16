@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import threading
+from collections.abc import Callable
 
 from robotic_classroom.audio.service import AudioService
 from robotic_classroom.camera.service import CameraService
@@ -17,10 +18,13 @@ class ActiveSpeakerService:
         camera: CameraService,
         audio: AudioService,
         config: ActiveSpeakerConfig,
+        *,
+        pan_angle_at: Callable[[float], float | None] | None = None,
     ) -> None:
         self.camera = camera
         self.audio = audio
         self.config = config
+        self.pan_angle_at = pan_angle_at
         self.fusion = ActiveSpeakerFusion(config)
         self._thread: threading.Thread | None = None
         self._stop_event = threading.Event()
@@ -39,9 +43,14 @@ class ActiveSpeakerService:
     def _run(self) -> None:
         interval = self.config.poll_interval_ms / 1000.0
         while not self._stop_event.is_set():
+            camera = self.camera.snapshot()
+            pan_angle = (
+                self.pan_angle_at(camera.timestamp_monotonic)
+                if self.config.pan_compensation_enabled and self.pan_angle_at is not None
+                else None
+            )
             self.fusion.update(
-                self.camera.snapshot(),
-                self.audio.observation(),
+                camera, self.audio.observation(), camera_pan_degrees=pan_angle,
             )
             self._stop_event.wait(interval)
 
@@ -53,3 +62,4 @@ class ActiveSpeakerService:
         if self._thread is not None:
             self._thread.join(timeout=2.0)
         self._thread = None
+

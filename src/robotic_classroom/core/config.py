@@ -150,6 +150,10 @@ class ActiveSpeakerConfig(BaseModel):
     geometry_calibrated: bool = False
     camera_horizontal_fov_degrees: float = Field(default=70.0, gt=10.0, le=170.0)
     doa_inverted: bool = False
+    pan_compensation_enabled: bool = False
+    pan_geometry_calibrated: bool = False
+    pan_degrees_per_us: float = Field(default=0.09, gt=0.0, le=1.0)
+    pan_settle_ms: int = Field(default=400, ge=300, le=5000)
     outside_fov_margin_degrees: float = Field(default=5.0, ge=0.0, le=45.0)
     max_match_error_degrees: float = Field(default=18.0, gt=0.0, le=90.0)
     minimum_candidate_score: float = Field(default=0.45, ge=0.0, le=1.0)
@@ -378,3 +382,4 @@ def load_settings(config_file: str | Path | None = None) -> Settings:
         control_access["access_token"] = value
 
     return Settings.model_validate(raw)
+

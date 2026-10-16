@@ -68,7 +68,7 @@ class ActiveSpeakerFusion:
         doa_signed: float,
     ) -> tuple[float, float, float]:
         camera_angle = self._camera_angle(center_x)
-        angular_error = abs(camera_angle - doa_signed)
+        angular_error = abs(self._signed_angle(camera_angle - doa_signed))
         audio_alignment = max(0.0, 1.0 - angular_error / self.config.max_match_error_degrees)
         area_ratio = min(
             (person.box.width * person.box.height) / max(frame_width * frame_height, 1),
@@ -98,6 +98,8 @@ class ActiveSpeakerFusion:
         self,
         camera: CameraSnapshot,
         audio: AudioObservation,
+        *,
+        camera_pan_degrees: float | None = None,
     ) -> ActiveSpeakerObservation:
         self._sequence += 1
 
@@ -181,9 +183,30 @@ class ActiveSpeakerFusion:
             )
             return self._latest
 
+        if self.config.pan_compensation_enabled and (
+            not self.config.pan_geometry_calibrated
+            or camera_pan_degrees is None
+            or not math.isfinite(camera_pan_degrees)
+        ):
+            self._latest = replace(
+                self._latest, state=ActiveSpeakerState.CALIBRATION_REQUIRED,
+                sequence=self._sequence, speaker_id=None, candidate_index=None,
+                center_x=None, center_y=None, confidence=None,
+                camera_angle_degrees=None, doa_degrees=audio.doa_degrees,
+                angular_error_degrees=None,
+                timestamp_monotonic=min(camera.timestamp_monotonic, audio.timestamp_monotonic),
+                message="Calibrated, settled camera pan estimate required for this frame",
+            )
+            return self._latest
+
         doa_signed = self._signed_angle(audio.doa_degrees)
         if self.config.doa_inverted:
             doa_signed = -doa_signed
+
+        if self.config.pan_compensation_enabled:
+            assert camera_pan_degrees is not None
+            # Audio is chassis-relative; detections are camera-relative.
+            doa_signed = self._signed_angle(doa_signed - camera_pan_degrees)
 
         half_fov = self.config.camera_horizontal_fov_degrees / 2.0
         if abs(doa_signed) > half_fov + self.config.outside_fov_margin_degrees:
@@ -284,3 +307,4 @@ class ActiveSpeakerFusion:
     @property
     def observation(self) -> ActiveSpeakerObservation:
         return self._latest
+
