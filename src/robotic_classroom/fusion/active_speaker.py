@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+import threading
 from dataclasses import replace
 
 from robotic_classroom.audio.models import AudioObservation
@@ -19,9 +20,16 @@ class ActiveSpeakerFusion:
 
     def __init__(self, config: ActiveSpeakerConfig) -> None:
         self.config = config
+        self._lock = threading.RLock()
         self._sequence = 0
         self._speaker_counter = 0
         self._speaker_id: str | None = None
+        self._accepted_location: tuple[float, float] | None = None
+        self._accepted_timestamp: float | None = None
+        self._pending_location: tuple[float, float] | None = None
+        self._pending_samples: tuple[float, float] | None = None
+        self._pending_since = 0.0
+        self._pending_count = 0
         self._last_center_x: float | None = None
         self._last_center_y: float | None = None
         self._latest = ActiveSpeakerObservation(
@@ -94,7 +102,93 @@ class ActiveSpeakerFusion:
         self._speaker_counter += 1
         return f"Speaker-{self._speaker_counter:02d}"
 
+    def _same_location(
+        self, left: tuple[float, float], right: tuple[float, float],
+    ) -> bool:
+        horizontal = self._signed_angle(left[0] - right[0])
+        return math.hypot(
+            horizontal / self.config.camera_horizontal_fov_degrees, left[1] - right[1],
+        ) <= self.config.continuity_distance_ratio
+
+    def _clear_pending(self) -> None:
+        self._pending_location = None
+        self._pending_samples = None
+        self._pending_count = 0
+
     def update(
+        self, camera: CameraSnapshot, audio: AudioObservation, *,
+        camera_pan_degrees: float | None = None,
+    ) -> ActiveSpeakerObservation:
+        # Do not expose an intermediate winner before switch confirmation.
+        with self._lock:
+            return self._update(camera, audio, camera_pan_degrees=camera_pan_degrees)
+
+    def _update(
+        self, camera: CameraSnapshot, audio: AudioObservation, *,
+        camera_pan_degrees: float | None = None,
+    ) -> ActiveSpeakerObservation:
+        # Expire association even across silence, camera loss or calibration failures.
+        if self._accepted_timestamp is not None and not is_fresh(
+            self._accepted_timestamp, self.config.observation_timeout_ms,
+        ):
+            self._speaker_id = None
+            self._accepted_location = None
+            self._accepted_timestamp = None
+            self._last_center_x = self._last_center_y = None
+            self._clear_pending()
+        result = self._evaluate(camera, audio, camera_pan_degrees=camera_pan_degrees)
+        if result.state is not ActiveSpeakerState.SPEAKER_SELECTED:
+            self._clear_pending()
+            return result
+
+        assert result.camera_angle_degrees is not None and result.center_y is not None
+        pan = camera_pan_degrees if self.config.pan_compensation_enabled else 0.0
+        assert pan is not None
+        location = (self._signed_angle(result.camera_angle_degrees + pan), result.center_y)
+        switching = self._speaker_counter > 0 and (
+            self._accepted_location is None
+            or not self._same_location(self._accepted_location, location)
+        )
+        if switching:
+            samples = (camera.timestamp_monotonic, audio.timestamp_monotonic)
+            if self._pending_location is None or not self._same_location(
+                self._pending_location, location,
+            ):
+                self._pending_location = location
+                self._pending_samples = samples
+                self._pending_since = min(samples)
+                self._pending_count = 1
+            elif self._pending_samples is not None and all(
+                current > previous for current, previous in zip(samples, self._pending_samples)
+            ):
+                # Both producers must advance; polling or only new audio is not evidence.
+                self._pending_samples = samples
+                self._pending_count += 1
+            confirmed = (
+                self._pending_count >= self.config.switch_confirmations
+                and self._pending_samples is not None
+                and min(self._pending_samples) - self._pending_since
+                >= self.config.switch_dwell_ms / 1000.0
+            )
+            if not confirmed:
+                self._latest = replace(
+                    result, state=ActiveSpeakerState.AMBIGUOUS,
+                    speaker_id=None, candidate_index=None, center_x=None, center_y=None,
+                    message="Waiting for fresh observations to confirm a speaker switch",
+                )
+                return self._latest
+
+        if self._speaker_id is None or switching:
+            self._speaker_id = self._new_speaker_id()
+        self._accepted_location = location
+        self._accepted_timestamp = result.timestamp_monotonic
+        self._last_center_x = result.center_x
+        self._last_center_y = result.center_y
+        self._clear_pending()
+        self._latest = replace(result, speaker_id=self._speaker_id)
+        return self._latest
+
+    def _evaluate(
         self,
         camera: CameraSnapshot,
         audio: AudioObservation,
@@ -284,10 +378,17 @@ class ActiveSpeakerFusion:
             )
             return self._latest
 
-        if self._speaker_id is None:
-            self._speaker_id = self._new_speaker_id()
-        self._last_center_x = center_x
-        self._last_center_y = center_y
+        if len(ranked) > 1 and best_score - ranked[1][0] < self.config.candidate_score_margin:
+            self._latest = ActiveSpeakerObservation(
+                state=ActiveSpeakerState.AMBIGUOUS, sequence=self._sequence,
+                speaker_id=None, candidate_index=None, confidence=None,
+                center_x=None, center_y=None, camera_angle_degrees=None,
+                doa_degrees=audio.doa_degrees, angular_error_degrees=None,
+                timestamp_monotonic=min(camera.timestamp_monotonic, audio.timestamp_monotonic),
+                message="Visible candidates are too close in score to select a speaker",
+            )
+            return self._latest
+
         self._latest = ActiveSpeakerObservation(
             state=ActiveSpeakerState.SPEAKER_SELECTED,
             timestamp_monotonic=min(camera.timestamp_monotonic, audio.timestamp_monotonic),
@@ -306,5 +407,6 @@ class ActiveSpeakerFusion:
 
     @property
     def observation(self) -> ActiveSpeakerObservation:
-        return self._latest
+        with self._lock:
+            return self._latest
 
