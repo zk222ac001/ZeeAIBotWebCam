@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import threading
+from dataclasses import replace
 
 from robotic_classroom.autonomy.controller import AutonomyController
 from robotic_classroom.autonomy.models import AutonomyState, AutonomyStatus
 from robotic_classroom.control.commands import STOP_COMMAND
 from robotic_classroom.core.config import AutonomyConfig, AxisConfig
+from robotic_classroom.core.freshness import is_fresh
 from robotic_classroom.hardware.interface import HardwareService
+from robotic_classroom.hardware.models import SensorSnapshot
 from robotic_classroom.pan_tilt.service import PanTiltPlanningService
 from robotic_classroom.safety.supervisor import SafetySupervisor
 from robotic_classroom.tracking.service import TrackingService
@@ -48,6 +51,7 @@ class AutonomyService:
         self._lease_token: str | None = None
         self._stable_target_id: str | None = None
         self._stable_target_cycles = 0
+        self._stable_timestamp: float | None = None
         self._status = AutonomyStatus(
             enabled=config.enabled,
             mode=config.mode,
@@ -93,6 +97,9 @@ class AutonomyService:
                     return False, "valid control lease required to arm execute mode"
                 if not self.safety.heartbeat(lease_token):
                     return False, "control heartbeat rejected"
+                self._stable_target_id = None
+                self._stable_target_cycles = 0
+                self._stable_timestamp = None
                 self._lease_token = lease_token
                 self.safety.state.set_autonomous()
             self._armed = True
@@ -177,16 +184,22 @@ class AutonomyService:
                 message=message,
             )
 
-    def _update_target_stability(self, state: AutonomyState, target_id: str | None) -> int:
+    def _update_target_stability(
+        self, state: AutonomyState, target_id: str | None, timestamp: float
+    ) -> int:
         with self._lock:
-            if state is not AutonomyState.TRACKING or target_id is None:
+            if state not in {AutonomyState.TRACKING, AutonomyState.FOLLOWING,
+                             AutonomyState.HOLDING} or target_id is None:
                 self._stable_target_id = None
                 self._stable_target_cycles = 0
+                self._stable_timestamp = None
             elif target_id == self._stable_target_id:
-                self._stable_target_cycles += 1
+                if timestamp != self._stable_timestamp:
+                    self._stable_target_cycles += 1
             else:
                 self._stable_target_id = target_id
                 self._stable_target_cycles = 1
+            self._stable_timestamp = timestamp
             return self._stable_target_cycles
 
     def _execution_policy_allows(self, command) -> tuple[bool, str]:
@@ -198,6 +211,18 @@ class AutonomyService:
         return True, ""
 
     def _run(self) -> None:
+        try:
+            self._run_loop()
+        except Exception:  # noqa: BLE001 - stop on arbitrary worker/backend failure
+            self.disarm()
+            self.safety.state.fault()
+            self._publish(
+                state=AutonomyState.FAULT, target_id=None, distance_cm=None,
+                stable_target_cycles=0, command=STOP_COMMAND, motion_executed=False,
+                safety_reason="autonomy worker failed", message="Autonomy stopped after worker error",
+            )
+
+    def _run_loop(self) -> None:
         interval = self.config.poll_interval_ms / 1000.0
         while not self._stop_event.is_set():
             with self._lock:
@@ -220,9 +245,27 @@ class AutonomyService:
 
             tracking = self.tracking.observation()
             pan_tilt = self.pan_tilt.plan()
-            sensors = self.hardware.sensors()
+            sensors = self.safety.sensor_snapshot() or SensorSnapshot(None, None, None)
             decision = self.controller.plan(tracking, pan_tilt, sensors)
-            stable_cycles = self._update_target_stability(decision.state, decision.target_id)
+            fresh = is_fresh(
+                tracking.timestamp_monotonic, self.safety.settings.tracking.observation_timeout_ms
+            ) and is_fresh(
+                pan_tilt.timestamp_monotonic, self.safety.settings.tracking.observation_timeout_ms
+            ) and is_fresh(sensors.timestamp_monotonic, self.safety.settings.safety.sensor_timeout_ms)
+            stable_cycles = self._update_target_stability(
+                decision.state if fresh else AutonomyState.TARGET_LOST,
+                decision.target_id, tracking.timestamp_monotonic,
+            )
+            if armed and self.config.mode == "execute" and not fresh:
+                self.disarm()
+                self._publish(
+                    state=AutonomyState.FAULT, target_id=decision.target_id,
+                    distance_cm=decision.distance_cm, stable_target_cycles=0,
+                    command=STOP_COMMAND, motion_executed=False,
+                    safety_reason="stale observations", message="Disarmed after stale perception",
+                )
+                self._stop_event.wait(interval)
+                continue
 
             if not armed:
                 self._publish(
@@ -253,7 +296,7 @@ class AutonomyService:
                 continue
 
             if (
-                decision.state is AutonomyState.TRACKING
+                decision.state in {AutonomyState.TRACKING, AutonomyState.FOLLOWING}
                 and not decision.command.is_stop
                 and stable_cycles < self.config.target_stability_cycles
             ):
@@ -273,6 +316,21 @@ class AutonomyService:
                 )
                 self._stop_event.wait(interval)
                 continue
+
+            if not decision.command.is_stop:
+                execution = self.pan_tilt.execution_status()
+                if (pan_tilt.target_id != tracking.target_id
+                    or execution is None or not execution.executed or execution.last_error):
+                    self.disarm()
+                    self._publish(
+                        state=AutonomyState.FAULT, target_id=decision.target_id,
+                        distance_cm=decision.distance_cm, stable_target_cycles=0,
+                        command=STOP_COMMAND, motion_executed=False,
+                        safety_reason="pan/tilt execution unavailable or mismatched",
+                        message="Disarmed: camera plan is not confirmed as submitted",
+                    )
+                    self._stop_event.wait(interval)
+                    continue
 
             policy_allowed, policy_reason = self._execution_policy_allows(decision.command)
             if not policy_allowed:
@@ -323,7 +381,7 @@ class AutonomyService:
 
     def status(self) -> AutonomyStatus:
         with self._lock:
-            return self._status
+            return replace(self._status, running=bool(self._thread and self._thread.is_alive()))
 
     def stop(self) -> None:
         self.disarm()

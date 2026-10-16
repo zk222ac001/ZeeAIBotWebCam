@@ -68,6 +68,7 @@ async def lifespan(app: FastAPI):
         settings.hardware.pan_tilt.tilt,
         hardware=hardware,
         calibration=settings.hardware.pan_tilt,
+        safety=supervisor,
     )
     pan_tilt.start()
 
@@ -85,7 +86,21 @@ async def lifespan(app: FastAPI):
             hardware.stop()
             raise
 
-    active_speaker = ActiveSpeakerService(camera, audio, settings.active_speaker)
+    def pan_angle_at(frame_timestamp: float) -> float | None:
+        if pan_tilt.executor is None:
+            return None
+        pulse = pan_tilt.executor.settled_pan_pulse(
+            frame_timestamp, settings.active_speaker.pan_settle_ms,
+        )
+        if pulse is None:
+            return None
+        axis = settings.hardware.pan_tilt.pan
+        direction = -1.0 if axis.inverted else 1.0
+        return (pulse - axis.center) * settings.active_speaker.pan_degrees_per_us * direction
+
+    active_speaker = ActiveSpeakerService(
+        camera, audio, settings.active_speaker, pan_angle_at=pan_angle_at,
+    )
     active_speaker.start()
     tracking.set_active_speaker(active_speaker)
 
@@ -242,7 +257,9 @@ def ready() -> dict[str, str]:
 
 @app.get("/api/sensors")
 def sensors() -> dict[str, object]:
-    snapshot = app.state.hardware.sensors()
+    snapshot = app.state.safety.sensor_snapshot()
+    if snapshot is None:
+        return {"battery_voltage": None, "distance_cm": None, "infrared": None}
     return {
         "battery_voltage": snapshot.battery_voltage,
         "distance_cm": snapshot.distance_cm,
@@ -568,6 +585,7 @@ def heartbeat(request: LeaseTokenRequest) -> dict[str, str]:
 @app.post("/api/control/emergency-stop")
 def emergency_stop() -> dict[str, str]:
     app.state.safety.emergency_stop()
+    app.state.autonomy.disarm()
     return {"status": "emergency stop active"}
 
 
@@ -576,3 +594,4 @@ def reset_emergency_stop(request: LeaseTokenRequest) -> dict[str, str]:
     if not app.state.safety.reset_emergency_stop(request.token):
         raise HTTPException(status_code=403, detail="valid control lease required")
     return {"status": "emergency stop reset"}
+

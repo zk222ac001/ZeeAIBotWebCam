@@ -2,17 +2,16 @@
 from __future__ import annotations
 
 import ast
+import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
-from typing import cast
 
 import pytest
 
 from robotic_classroom.audio.models import AudioObservation, SpeechState
 from robotic_classroom.camera.models import BoundingBox, CameraSnapshot, PersonDetection
-from robotic_classroom.camera.service import CameraService
 from robotic_classroom.core.config import (
     ActiveSpeakerConfig,
     AxisConfig,
@@ -31,7 +30,7 @@ from robotic_classroom.tracking.tracker import PersonTracker
 def snapshot(x: float = .7, y: float = .52, sequence: int = 5000) -> CameraSnapshot:
     return CameraSnapshot(
         backend="test", connected=True, frame_width=1000, frame_height=1000,
-        sequence=sequence, people=(PersonDetection(
+        timestamp_monotonic=time.monotonic(), sequence=sequence, people=(PersonDetection(
             .95, BoundingBox(round(x * 1000) - 100, round(y * 1000) - 100, 200, 200)
         ),),
     )
@@ -39,6 +38,7 @@ def snapshot(x: float = .7, y: float = .52, sequence: int = 5000) -> CameraSnaps
 
 def speaker(sequence: int = 200, x: float = .7, y: float = .52) -> ActiveSpeakerObservation:
     return ActiveSpeakerObservation(
+        timestamp_monotonic=time.monotonic(),
         state=ActiveSpeakerState.SPEAKER_SELECTED, sequence=sequence,
         speaker_id="Speaker-01", confidence=.9, candidate_index=0, center_x=x,
         center_y=y, camera_angle_degrees=(x - .5) * 70, doa_degrees=0,
@@ -47,7 +47,7 @@ def speaker(sequence: int = 200, x: float = .7, y: float = .52) -> ActiveSpeaker
 
 
 def service() -> TrackingService:
-    result = TrackingService(cast(CameraService, None), TrackingConfig(smoothing_alpha=1))
+    result = TrackingService(SimpleNamespace(snapshot=snapshot), TrackingConfig(smoothing_alpha=1))
     result.tracker.update(snapshot())
     return result
 
@@ -56,7 +56,7 @@ def tracking(source: str, x: float, y: float, config: TrackingConfig | None = No
     config = config or TrackingConfig(smoothing_alpha=1)
     if source == "visual":
         return PersonTracker(config).update(snapshot(x, y))
-    result = TrackingService(cast(CameraService, None), config)
+    result = TrackingService(SimpleNamespace(snapshot=snapshot), config)
     result.set_active_speaker(SimpleNamespace(observation=lambda: speaker(x=x, y=y)))
     return result.observation()
 
@@ -176,7 +176,8 @@ def test_source_changes_do_not_reset_publication_sequence():
 
 def test_repeated_reads_do_not_manufacture_fresh_observations():
     tracking_service = service()
-    tracking_service.set_active_speaker(SimpleNamespace(observation=lambda: speaker()))
+    fixed_speaker = speaker()
+    tracking_service.set_active_speaker(SimpleNamespace(observation=lambda: fixed_speaker))
     first = tracking_service.observation()
     for _ in range(100):
         assert tracking_service.observation() is first

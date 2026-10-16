@@ -131,6 +131,7 @@ class PanTiltController:
         self._tilt_pulse = self._slew(self._tilt_pulse, desired_tilt)
 
         return PanTiltPlan(
+            timestamp_monotonic=observation.timestamp_monotonic,
             state=state,
             sequence=self._sequence,
             target_id=observation.target_id,

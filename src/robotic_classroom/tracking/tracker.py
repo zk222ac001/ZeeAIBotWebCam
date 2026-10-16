@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import math
 import time
+from dataclasses import replace
 
 from robotic_classroom.camera.models import CameraSnapshot, PersonDetection
 from robotic_classroom.core.config import TrackingConfig
+from robotic_classroom.core.freshness import is_fresh
 from robotic_classroom.tracking.models import TrackingObservation, TrackingState
 
 
@@ -101,6 +103,19 @@ class PersonTracker:
             )
             return self._last_observation
 
+        current_time = time.monotonic() if now is None else now
+        if not snapshot.connected or not is_fresh(
+            snapshot.timestamp_monotonic, self.config.observation_timeout_ms, current_time
+        ):
+            self._last_sequence = -1
+            self._last_observation = replace(
+                self._last_observation, state=TrackingState.LOST,
+                confidence=None, error_x=None, error_y=None, in_dead_zone=False,
+                timestamp_monotonic=snapshot.timestamp_monotonic,
+                message="Camera unavailable or stale; movement must stop",
+            )
+            return self._last_observation
+
         if snapshot.sequence == self._last_sequence:
             return self._last_observation
         self._last_sequence = snapshot.sequence
@@ -162,6 +177,7 @@ class PersonTracker:
 
         self._last_observation = TrackingObservation(
             state=TrackingState.TRACKING,
+            timestamp_monotonic=snapshot.timestamp_monotonic,
             sequence=snapshot.sequence,
             target_id=self._target_id,
             confidence=selected.confidence,

@@ -70,6 +70,7 @@ class CameraConfig(BaseModel):
 
 
 class TrackingConfig(BaseModel):
+    observation_timeout_ms: int = Field(default=1000, ge=100, le=5000)
     enabled: bool = True
     poll_interval_ms: int = Field(default=50, ge=20, le=1000)
     smoothing_alpha: float = Field(default=0.35, gt=0.0, le=1.0)
@@ -143,14 +144,22 @@ class AudioConfig(BaseModel):
 
 
 class ActiveSpeakerConfig(BaseModel):
+    observation_timeout_ms: int = Field(default=1000, ge=100, le=5000)
     enabled: bool = True
     poll_interval_ms: int = Field(default=100, ge=50, le=2000)
     geometry_calibrated: bool = False
     camera_horizontal_fov_degrees: float = Field(default=70.0, gt=10.0, le=170.0)
     doa_inverted: bool = False
+    pan_compensation_enabled: bool = False
+    pan_geometry_calibrated: bool = False
+    pan_degrees_per_us: float = Field(default=0.09, gt=0.0, le=1.0)
+    pan_settle_ms: int = Field(default=400, ge=300, le=5000)
     outside_fov_margin_degrees: float = Field(default=5.0, ge=0.0, le=45.0)
     max_match_error_degrees: float = Field(default=18.0, gt=0.0, le=90.0)
     minimum_candidate_score: float = Field(default=0.45, ge=0.0, le=1.0)
+    switch_confirmations: int = Field(default=3, ge=1, le=20)
+    switch_dwell_ms: int = Field(default=250, ge=0, le=2000)
+    candidate_score_margin: float = Field(default=0.08, ge=0.0, le=1.0)
     continuity_distance_ratio: float = Field(default=0.20, gt=0.0, le=1.0)
     audio_alignment_weight: float = Field(default=0.65, ge=0.0, le=1.0)
     detection_confidence_weight: float = Field(default=0.20, ge=0.0, le=1.0)
@@ -240,6 +249,7 @@ class LoggingConfig(BaseModel):
 
 
 class SafetyConfig(BaseModel):
+    sensor_timeout_ms: int = Field(default=1000, ge=100, le=5000)
     motion_enabled: bool = False
     minimum_obstacle_distance_cm: float = Field(default=30.0, gt=0)
     heartbeat_timeout_ms: int = Field(default=750, ge=100, le=10_000)
@@ -375,3 +385,4 @@ def load_settings(config_file: str | Path | None = None) -> Settings:
         control_access["access_token"] = value
 
     return Settings.model_validate(raw)
+

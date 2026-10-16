@@ -1,7 +1,13 @@
-from robotic_classroom.core.config import AxisConfig, PanTiltConfig, PanTiltControlConfig
+from robotic_classroom.core.config import (
+    AxisConfig,
+    PanTiltConfig,
+    PanTiltControlConfig,
+    load_settings,
+)
 from robotic_classroom.hardware.mock import MockHardwareService
 from robotic_classroom.pan_tilt.executor import PanTiltExecutor
 from robotic_classroom.pan_tilt.models import AxisPlan, PanTiltPlan, PanTiltPlanState
+from robotic_classroom.safety.supervisor import SafetySupervisor
 
 
 def plan() -> PanTiltPlan:
@@ -58,6 +64,10 @@ def test_executor_applies_only_when_all_gates_are_true() -> None:
         ),
     )
 
+    settings = load_settings()
+    settings.hardware.pan_tilt = executor.calibration
+    settings.pan_tilt_control = executor.control
+    executor.safety = SafetySupervisor(settings, hardware)
     assert executor.apply(plan()) is True
     assert hardware.pan_pulse == 1515
     assert hardware.tilt_pulse == 1490

@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 
 from robotic_classroom.camera.service import CameraService
 from robotic_classroom.core.config import TrackingConfig
+from robotic_classroom.core.freshness import is_fresh
 from robotic_classroom.fusion.models import ActiveSpeakerState
 from robotic_classroom.tracking.models import TrackingObservation, TrackingState
 from robotic_classroom.tracking.tracker import PersonTracker
@@ -82,6 +83,7 @@ class TrackingService:
 
         if (
             speaker.state is ActiveSpeakerState.SPEAKER_SELECTED
+            and is_fresh(speaker.timestamp_monotonic, self.config.observation_timeout_ms)
             and speaker.center_x is not None
             and speaker.center_y is not None
         ):
@@ -94,6 +96,7 @@ class TrackingService:
 
             observation = TrackingObservation(
                 state=TrackingState.TRACKING,
+                timestamp_monotonic=speaker.timestamp_monotonic,
                 sequence=speaker.sequence,
                 target_id=speaker.speaker_id or "ActiveSpeaker",
                 confidence=speaker.confidence,
@@ -155,6 +158,14 @@ class TrackingService:
         with self._lock:
             active = self._active_speaker_observation()
             candidate = active if active is not None else self.tracker.observation
+            camera = self.camera.snapshot()
+            if (not camera.connected or not is_fresh(
+                camera.timestamp_monotonic, self.config.observation_timeout_ms
+            ) or not is_fresh(candidate.timestamp_monotonic, self.config.observation_timeout_ms)):
+                candidate = replace(
+                    candidate, state=TrackingState.LOST, error_x=None, error_y=None,
+                    in_dead_zone=False, message="Perception unavailable or stale; holding",
+                )
             if candidate != self._last_source_observation:
                 self._publication_sequence += 1
                 self._last_source_observation = candidate
