@@ -70,6 +70,7 @@ class CameraConfig(BaseModel):
 
 
 class TrackingConfig(BaseModel):
+    observation_timeout_ms: int = Field(default=1000, ge=100, le=5000)
     enabled: bool = True
     poll_interval_ms: int = Field(default=50, ge=20, le=1000)
     smoothing_alpha: float = Field(default=0.35, gt=0.0, le=1.0)
@@ -96,6 +97,7 @@ class PanTiltControlConfig(BaseModel):
     tilt_gain_us: float = Field(default=300.0, ge=0.0, le=2000.0)
     max_step_us: int = Field(default=15, ge=1, le=200)
     hold_on_lost_target: bool = True
+    startup_center_hold: bool = False
 
 
 class AutonomyConfig(BaseModel):
@@ -140,17 +142,26 @@ class AudioConfig(BaseModel):
     vad_hangover_ms: int = Field(default=350, ge=0, le=5000)
     orientation_offset_degrees: float = Field(default=0.0, ge=0.0, lt=360.0)
     orientation_calibrated: bool = False
+    doa_source: Literal["processed", "auto_selected", "primary"] = "auto_selected"
 
 
 class ActiveSpeakerConfig(BaseModel):
+    observation_timeout_ms: int = Field(default=1000, ge=100, le=5000)
     enabled: bool = True
     poll_interval_ms: int = Field(default=100, ge=50, le=2000)
     geometry_calibrated: bool = False
     camera_horizontal_fov_degrees: float = Field(default=70.0, gt=10.0, le=170.0)
     doa_inverted: bool = False
+    pan_compensation_enabled: bool = False
+    pan_geometry_calibrated: bool = False
+    pan_degrees_per_us: float = Field(default=0.09, gt=0.0, le=1.0)
+    pan_settle_ms: int = Field(default=400, ge=300, le=5000)
     outside_fov_margin_degrees: float = Field(default=5.0, ge=0.0, le=45.0)
     max_match_error_degrees: float = Field(default=18.0, gt=0.0, le=90.0)
     minimum_candidate_score: float = Field(default=0.45, ge=0.0, le=1.0)
+    switch_confirmations: int = Field(default=3, ge=1, le=20)
+    switch_dwell_ms: int = Field(default=250, ge=0, le=2000)
+    candidate_score_margin: float = Field(default=0.08, ge=0.0, le=1.0)
     continuity_distance_ratio: float = Field(default=0.20, gt=0.0, le=1.0)
     audio_alignment_weight: float = Field(default=0.65, ge=0.0, le=1.0)
     detection_confidence_weight: float = Field(default=0.20, ge=0.0, le=1.0)
@@ -240,11 +251,13 @@ class LoggingConfig(BaseModel):
 
 
 class SafetyConfig(BaseModel):
+    sensor_timeout_ms: int = Field(default=1000, ge=100, le=5000)
     motion_enabled: bool = False
     minimum_obstacle_distance_cm: float = Field(default=30.0, gt=0)
     heartbeat_timeout_ms: int = Field(default=750, ge=100, le=10_000)
     control_lease_ttl_seconds: float = Field(default=10.0, ge=1.0, le=300.0)
     require_control_lease: bool = True
+    minimum_battery_voltage: float | None = Field(default=None, gt=0, allow_inf_nan=False)
 
 
 class PrivacyConfig(BaseModel):
@@ -289,6 +302,10 @@ def load_settings(config_file: str | Path | None = None) -> Settings:
     active_speaker = raw.setdefault("active_speaker", {})
     conference = raw.setdefault("conference", {})
     control_access = raw.setdefault("control_access", {})
+    safety = raw.setdefault("safety", {})
+
+    if value := os.getenv("SAFETY_MINIMUM_BATTERY_VOLTAGE"):
+        safety["minimum_battery_voltage"] = float(value)
 
     if value := os.getenv("APPLICATION_ENVIRONMENT"):
         application["environment"] = value
@@ -322,6 +339,8 @@ def load_settings(config_file: str | Path | None = None) -> Settings:
         autonomy["forward_enabled"] = value.lower() in {"1", "true", "yes", "on"}
     if value := os.getenv("AUDIO_MODE"):
         audio["mode"] = value
+    if value := os.getenv("AUDIO_DOA_SOURCE"):
+        audio["doa_source"] = value
     if value := os.getenv("AUDIO_ENABLED"):
         audio["enabled"] = value.lower() in {"1", "true", "yes", "on"}
     if value := os.getenv("ACTIVE_SPEAKER_ENABLED"):
@@ -375,3 +394,4 @@ def load_settings(config_file: str | Path | None = None) -> Settings:
         control_access["access_token"] = value
 
     return Settings.model_validate(raw)
+

@@ -25,7 +25,7 @@ class _RuntimeSession:
     peer_connection: Any
     created_monotonic: float
     last_activity_monotonic: float
-    media_player: Any | None = None
+    microphone_track: Any | None = None
     remote_tasks: list[asyncio.Task[None]] | None = None
     playback: RemoteAudioPlayback | None = None
 
@@ -46,6 +46,10 @@ class AiortcConferenceBackend:
         self._running = False
         self._sessions: dict[str, _RuntimeSession] = {}
         self._lock = asyncio.Lock()
+        self._offer_lock = asyncio.Lock()
+        self._microphone_player: Any | None = None
+        self._microphone_relay: Any | None = None
+        self._microphone_tracks: set[Any] = set()
 
     async def start(self) -> None:
         if not self.config.enabled:
@@ -139,14 +143,53 @@ class AiortcConferenceBackend:
         while pc.iceGatheringState != "complete" and monotonic() < deadline:
             await asyncio.sleep(0.05)
 
+    @staticmethod
+    def _stop_player(player: Any) -> None:
+        # Closing a peer does not close its MediaPlayer / ALSA container.
+        for track in (player.audio, player.video):
+            if track is not None:
+                track.stop()
+
+    def _subscribe_microphone(self) -> Any:
+        from aiortc.contrib.media import MediaPlayer, MediaRelay
+
+        if self._microphone_player is None:
+            player = MediaPlayer(self.config.audio_input_device, format="alsa")
+            if player.audio is None:
+                self._stop_player(player)
+                raise RuntimeError("Configured ALSA input did not expose an audio track")
+            self._microphone_player = player
+            self._microphone_relay = MediaRelay()
+        track = self._microphone_relay.subscribe(self._microphone_player.audio, buffered=False)
+        self._microphone_tracks.add(track)
+        return track
+
+    def _release_microphone(self, runtime: _RuntimeSession) -> None:
+        track = runtime.microphone_track
+        if track is None:
+            return
+        runtime.microphone_track = None
+        track.stop()
+        self._microphone_tracks.discard(track)
+        if not self._microphone_tracks and self._microphone_player is not None:
+            player = self._microphone_player
+            self._microphone_player = None
+            self._microphone_relay = None
+            self._stop_player(player)
+
     async def create_answer(self, offer: SessionDescription) -> ConferenceAnswer:
+        # Include negotiations in the capacity limit and serialize capture setup.
+        async with self._offer_lock:
+            await self._cleanup_stale()
+            return await self._create_answer(offer)
+
+    async def _create_answer(self, offer: SessionDescription) -> ConferenceAnswer:
         if not self._running:
             raise RuntimeError("Conference backend is not running")
         if offer.type != "offer" or not offer.sdp.strip():
             raise ValueError("A non-empty SDP offer is required")
 
         from aiortc import RTCPeerConnection, RTCSessionDescription
-        from aiortc.contrib.media import MediaPlayer
 
         async with self._lock:
             if len(self._sessions) >= self.config.max_sessions:
@@ -195,18 +238,15 @@ class AiortcConferenceBackend:
                 pc.addTrack(self._video_track())
 
             if self.config.publish_audio:
-                player = MediaPlayer(self.config.audio_input_device, format="alsa")
-                runtime.media_player = player
-                if player.audio is None:
-                    raise RuntimeError(
-                        f"ALSA device {self.config.audio_input_device!r} did not expose an audio track"
-                    )
-                pc.addTrack(player.audio)
+                runtime.microphone_track = self._subscribe_microphone()
+                pc.addTrack(runtime.microphone_track)
 
             answer = await pc.createAnswer()
             await pc.setLocalDescription(answer)
             await self._wait_for_ice_complete(pc)
 
+            if pc.connectionState in {"failed", "closed"}:
+                raise RuntimeError("WebRTC peer closed during negotiation")
             async with self._lock:
                 self._sessions[session_id] = runtime
 
@@ -218,7 +258,7 @@ class AiortcConferenceBackend:
                 session_id=session_id,
                 description=SessionDescription(type=local.type, sdp=local.sdp),
             )
-        except Exception:
+        except BaseException:
             # A remote audio track may already have started while the SDP offer is
             # being processed. Cancel and await those tasks before tearing down the
             # peer connection so failed offers do not leave pending playback tasks.
@@ -228,8 +268,12 @@ class AiortcConferenceBackend:
                 await asyncio.gather(*runtime.remote_tasks, return_exceptions=True)
             if runtime.playback is not None:
                 runtime.playback.stop()
-            await pc.close()
-            runtime.media_player = None
+            try:
+                await pc.close()
+            finally:
+                async with self._lock:
+                    self._sessions.pop(session_id, None)
+                self._release_microphone(runtime)
             raise
 
     async def close_session(self, session_id: str) -> bool:
@@ -244,8 +288,10 @@ class AiortcConferenceBackend:
             await asyncio.gather(*runtime.remote_tasks, return_exceptions=True)
         if runtime.playback is not None:
             runtime.playback.stop()
-        await runtime.peer_connection.close()
-        runtime.media_player = None
+        try:
+            await runtime.peer_connection.close()
+        finally:
+            self._release_microphone(runtime)
         return True
 
     async def _cleanup_stale(self) -> None:
@@ -350,8 +396,9 @@ class AiortcConferenceBackend:
         )
 
     async def stop(self) -> None:
-        async with self._lock:
-            session_ids = list(self._sessions)
-        for session_id in session_ids:
-            await self.close_session(session_id)
         self._running = False
+        async with self._offer_lock:
+            async with self._lock:
+                session_ids = list(self._sessions)
+            for session_id in session_ids:
+                await self.close_session(session_id)

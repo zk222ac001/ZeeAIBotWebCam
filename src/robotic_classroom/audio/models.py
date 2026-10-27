@@ -26,3 +26,7 @@ class AudioObservation:
     firmware_version: str | None = None
     timestamp_monotonic: float = field(default_factory=monotonic)
     message: str = ""
+    doa_source: str = "unknown"
+    doa_degrees_primary: float | None = None
+    doa_degrees_processed: float | None = None
+    doa_degrees_auto_selected: float | None = None

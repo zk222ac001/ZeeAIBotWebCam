@@ -35,6 +35,8 @@ def test_readiness_report_render_lists_blockers() -> None:
         {
             "production_ready": False,
             "autonomous_motion_ready": False,
+            "autonomous_motion_scope": "supervised target tracking; excludes navigation and docking",
+            "unattended_navigation_ready": False,
             "categories": {
                 "runtime": {"ready": True, "blockers": []},
                 "aec": {
@@ -54,6 +56,8 @@ def test_readiness_report_render_lists_blockers() -> None:
     assert "BLOCKED aec" in text
     assert "acoustic echo reference not validated" in text
     assert "mode=plan_only" in text
+    assert "excludes navigation and docking" in text
+    assert "Unattended navigation ready: False" in text
 
 
 def test_readiness_report_requires_https_origin() -> None:

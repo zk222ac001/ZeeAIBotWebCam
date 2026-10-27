@@ -61,6 +61,14 @@ python scripts/classroom_pilot_check.py --duration 600 \
   --ca .local-certs/zee-local-ca.crt
 ```
 
+The trial timer starts only after a starting-status check confirms an idle stationary
+chassis and watchdog, readable status services, connected camera/audio, a connected
+conference session, and two visible local participants. Otherwise the helper exits
+with an `INCOMPLETE` report, `preflight_failed` reason, and zero trial samples. Connect
+the conference and place both participants in view before retrying. This check also
+applies to short smoke tests; it does not prove that the media can be seen/heard or
+that physical movement is safe.
+
 The CA is public certificate material. Never distribute either private `.key` file.
 If a read returns HTTP 401/403 and conference authentication has been enabled,
 set `ZEE_CONFERENCE_TOKEN` locally to the existing authorized conference token.

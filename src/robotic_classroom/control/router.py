@@ -34,6 +34,8 @@ def submit_motion(payload: MotionRequest, request: Request) -> dict[str, object]
     )
     autonomy = getattr(request.app.state, "autonomy", None)
     if autonomy is not None:
+        if command.is_stop:
+            autonomy.disarm()
         autonomy_status = autonomy.status()
         if autonomy_status.armed and autonomy_status.mode == "execute" and not command.is_stop:
             raise HTTPException(
@@ -43,7 +45,8 @@ def submit_motion(payload: MotionRequest, request: Request) -> dict[str, object]
     decision = request.app.state.safety.submit_motion(command, payload.token)
 
     if not decision.allowed:
-        status_code = 403 if "lease" in decision.reason else 409
+        status_code = (503 if "hardware" in decision.reason
+                       else 403 if "lease" in decision.reason else 409)
         raise HTTPException(status_code=status_code, detail=decision.reason)
 
     return {

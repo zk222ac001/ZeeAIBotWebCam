@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+import math
 import threading
 from dataclasses import dataclass
 
@@ -7,7 +9,10 @@ from robotic_classroom.control.commands import MotionCommand
 from robotic_classroom.control.lease import ControlLease, ControlLeaseManager
 from robotic_classroom.control.state_machine import RobotState, RobotStateMachine
 from robotic_classroom.core.config import Settings
+from robotic_classroom.core.freshness import is_fresh
 from robotic_classroom.hardware.interface import HardwareService
+from robotic_classroom.hardware.models import SensorSnapshot
+from robotic_classroom.pan_tilt.models import PanTiltPlan
 from robotic_classroom.safety.command_validator import CommandValidator
 from robotic_classroom.safety.deadman import DeadmanTimer
 
@@ -32,6 +37,8 @@ class SafetySupervisor:
 
         self._lock = threading.RLock()
         self._motion_active = False
+        self._sensor_snapshot: SensorSnapshot | None = None
+        self._sensor_thread: threading.Thread | None = None
         self._watchdog_stop = threading.Event()
         self._watchdog_thread: threading.Thread | None = None
 
@@ -39,7 +46,13 @@ class SafetySupervisor:
         with self._lock:
             if self._watchdog_thread is not None and self._watchdog_thread.is_alive():
                 return
+            if self._sensor_thread is not None and self._sensor_thread.is_alive():
+                raise RuntimeError("Previous safety sensor reader has not stopped")
             self._watchdog_stop.clear()
+            self._sensor_thread = threading.Thread(
+                target=self._sensor_loop, name="safety-sensors", daemon=True
+            )
+            self._sensor_thread.start()
             self._watchdog_thread = threading.Thread(
                 target=self._watchdog_loop,
                 name="chassis-deadman-watchdog",
@@ -53,16 +66,57 @@ class SafetySupervisor:
         if thread is not None and thread.is_alive():
             thread.join(timeout=1.0)
         self._watchdog_thread = None
+        sensor_thread = self._sensor_thread
+        if sensor_thread is not None:
+            sensor_thread.join(timeout=1.0)
+        # A blocked reader must not be duplicated by a restart.
+        if sensor_thread is not None and not sensor_thread.is_alive():
+            self._sensor_thread = None
+
+    def _sensor_loop(self) -> None:
+        while not self._watchdog_stop.is_set():
+            try:
+                snapshot = self.hardware.sensors()
+            except Exception:  # noqa: BLE001 - invalid samples fail closed
+                snapshot = None
+            # Publication does not need the actuator lock.
+            self._sensor_snapshot = snapshot
+            self._watchdog_stop.wait(0.1)
+
+    def sensor_snapshot(self) -> SensorSnapshot | None:
+        return self._sensor_snapshot
+
+    def sensor_blocker(self) -> str:
+        """Report whether the current sensor sample permits chassis movement."""
+        return self._sensor_blocker()
+
+    def _sensor_blocker(self) -> str:
+        snapshot = self._sensor_snapshot
+        if snapshot is None or not is_fresh(
+            snapshot.timestamp_monotonic, self.settings.safety.sensor_timeout_ms
+        ):
+            return "sensor data unavailable or stale"
+        minimum_voltage = self.settings.safety.minimum_battery_voltage
+        if minimum_voltage is not None:
+            voltage = snapshot.battery_voltage
+            if voltage is None or not math.isfinite(voltage) or voltage <= 0:
+                return "battery voltage unavailable or invalid"
+            if voltage < minimum_voltage:
+                return "battery voltage below safety threshold"
+        distance = snapshot.distance_cm
+        if distance is None or not math.isfinite(distance) or distance < 0:
+            return "ultrasonic distance unavailable or invalid"
+        if distance < self.settings.safety.minimum_obstacle_distance_cm:
+            return "obstacle inside safety distance"
+        return ""
 
     def _watchdog_loop(self) -> None:
         interval = min(max(self.deadman.timeout_seconds / 4.0, 0.02), 0.10)
         while not self._watchdog_stop.wait(interval):
-            if not self._motion_active or self.deadman.fresh:
-                continue
             with self._lock:
-                if self._motion_active and not self.deadman.fresh:
-                    self.hardware.stop_motion()
-                    self._motion_active = False
+                if self._motion_active and (not self.deadman.fresh or self._sensor_blocker()):
+                    self._latch_actuator_fault()
+                    self._stop_motion_locked()
 
     @property
     def watchdog_running(self) -> bool:
@@ -78,21 +132,44 @@ class SafetySupervisor:
         with self._lock:
             return self.leases.acquire(owner)
 
-    def emergency_stop(self) -> None:
-        with self._lock:
+    def _latch_actuator_fault(self) -> None:
+        """Revoke authorization without weakening an existing E-stop or shutdown."""
+        self.deadman.clear()
+        self.leases.clear()
+        if self.state.state not in {RobotState.EMERGENCY_STOP, RobotState.SHUTDOWN}:
+            self.state.fault()
+
+    def _stop_motion_locked(self) -> bool:
+        """Attempt STOP; a failed write leaves physical motion conservatively unknown.
+
+        Caller holds the supervisor lock. This handles raised I/O errors; it
+        cannot interrupt a blocked driver or confirm physical motor position.
+        """
+        try:
             self.hardware.stop_motion()
-            self._motion_active = False
+        except Exception:
+            self._motion_active = True
+            self._latch_actuator_fault()
+            logging.getLogger(__name__).exception("Hardware stop failed")
+            return False
+        self._motion_active = False
+        return True
+
+    def emergency_stop(self) -> bool:
+        with self._lock:
+            # Latch and revoke control before a hardware operation can fail.
+            self.state.emergency_stop()
             self.deadman.clear()
             self.leases.clear()
-            self.state.emergency_stop()
+            return self._stop_motion_locked()
 
     def reset_emergency_stop(self, lease_token: str | None = None) -> bool:
         """Reset E-stop only for an authorized operator when leases are required."""
         with self._lock:
             if self.settings.safety.require_control_lease and not self.leases.validate(lease_token):
                 return False
-            self.hardware.stop_motion()
-            self._motion_active = False
+            if not self._stop_motion_locked():
+                return False
             self.deadman.clear()
             self.state.reset_to_idle()
             return True
@@ -126,27 +203,50 @@ class SafetySupervisor:
         if not self.deadman.fresh:
             return SafetyDecision(False, "heartbeat expired or missing")
 
-        snapshot = self.hardware.sensors()
-        if (
-            command.forward > 0
-            and snapshot.distance_cm is not None
-            and snapshot.distance_cm < self.settings.safety.minimum_obstacle_distance_cm
-        ):
-            return SafetyDecision(False, "obstacle too close for forward movement")
+        if not self.watchdog_running:
+            return SafetyDecision(False, "safety watchdog not running")
+        blocker = self._sensor_blocker()
+        if blocker:
+            return SafetyDecision(False, blocker)
 
         return SafetyDecision(True, "command permitted")
 
     def submit_motion(self, command: MotionCommand, lease_token: str | None = None) -> SafetyDecision:
         with self._lock:
             decision = self.evaluate(command, lease_token)
-            if command.is_stop:
-                self.hardware.stop_motion()
-                self._motion_active = False
+            if command.is_stop or not decision.allowed:
+                if not self._stop_motion_locked():
+                    return SafetyDecision(False, "hardware stop failed; motion state unknown")
                 return decision
-            if not decision.allowed:
-                self.hardware.stop_motion()
-                self._motion_active = False
-                return decision
-            self.hardware.drive(command)
+            try:
+                self.hardware.drive(command)
+            except Exception:
+                self._latch_actuator_fault()
+                logging.getLogger(__name__).exception("Hardware drive failed")
+                stopped = self._stop_motion_locked()
+                reason = "hardware drive failed; fault latched"
+                if not stopped:
+                    reason += "; hardware stop failed; motion state unknown"
+                return SafetyDecision(False, reason)
             self._motion_active = True
             return decision
+
+    def submit_pan_tilt(self, plan: PanTiltPlan) -> SafetyDecision:
+        """Serialize servo requests with E-stop; stationary framing needs no drive lease."""
+        with self._lock:
+            if self.state.state in {RobotState.EMERGENCY_STOP, RobotState.FAULT, RobotState.SHUTDOWN}:
+                return SafetyDecision(False, f"robot state is {self.state.state.value}")
+            cfg = self.settings.hardware.pan_tilt
+            if (not self.settings.pan_tilt_control.enabled
+                or self.settings.pan_tilt_control.mode != "execute"
+                or not cfg.enabled or not cfg.calibration_validated):
+                return SafetyDecision(False, "pan/tilt execution or calibration disabled")
+            if not is_fresh(plan.timestamp_monotonic, self.settings.tracking.observation_timeout_ms):
+                return SafetyDecision(False, "pan/tilt observation stale")
+            for axis, pulse in ((cfg.pan, plan.pan.planned_pulse),
+                                (cfg.tilt, plan.tilt.planned_pulse)):
+                if not axis.minimum <= pulse <= axis.maximum:
+                    return SafetyDecision(False, "pan/tilt pulse outside calibration")
+            self.hardware.set_pan_pulse(plan.pan.planned_pulse)
+            self.hardware.set_tilt_pulse(plan.tilt.planned_pulse)
+            return SafetyDecision(True, "pan/tilt command permitted")

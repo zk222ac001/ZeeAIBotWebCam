@@ -61,6 +61,12 @@ def render(data: dict[str, Any]) -> str:
         f"Autonomous motion ready: {bool(data.get('autonomous_motion_ready'))}",
         "",
     ]
+    if isinstance(data.get("autonomous_motion_scope"), str):
+        lines.append(f"Autonomy scope: {data['autonomous_motion_scope']}")
+    if "unattended_navigation_ready" in data:
+        lines.append(f"Unattended navigation ready: {bool(data['unattended_navigation_ready'])}")
+    if "autonomous_motion_scope" in data or "unattended_navigation_ready" in data:
+        lines.append("")
     categories = data.get("categories")
     if isinstance(categories, dict):
         for name, value in categories.items():

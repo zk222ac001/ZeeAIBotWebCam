@@ -59,6 +59,17 @@ def test_plan_only_arm_updates_status_immediately() -> None:
     assert service.status().motion_executed is False
 
 
+def test_execute_mode_cannot_arm_while_camera_is_held_at_center():
+    service, safety = make_service(AutonomyConfig(
+        enabled=True, mode="execute", pilot_validated=True,
+    ))
+    service.pan_tilt.center_hold = True
+    armed, reason = service.arm("1234567890abcdef")
+    assert not armed
+    assert "resume camera tracking" in reason
+    safety.heartbeat.assert_not_called()
+
+
 def test_disarm_updates_status_immediately_and_requests_stop() -> None:
     service, safety = make_service(AutonomyConfig(enabled=True, mode="plan_only"))
     service.arm()
@@ -88,7 +99,7 @@ def test_target_stability_requires_consecutive_same_target() -> None:
         AutonomyConfig(enabled=True, target_stability_cycles=3)
     )
 
-    assert service._update_target_stability(AutonomyState.TRACKING, "Person-01") == 1
-    assert service._update_target_stability(AutonomyState.TRACKING, "Person-01") == 2
-    assert service._update_target_stability(AutonomyState.TRACKING, "Person-02") == 1
-    assert service._update_target_stability(AutonomyState.TARGET_LOST, None) == 0
+    assert service._update_target_stability(AutonomyState.TRACKING, "Person-01", 1) == 1
+    assert service._update_target_stability(AutonomyState.TRACKING, "Person-01", 2) == 2
+    assert service._update_target_stability(AutonomyState.TRACKING, "Person-02", 3) == 1
+    assert service._update_target_stability(AutonomyState.TARGET_LOST, None, 4) == 0

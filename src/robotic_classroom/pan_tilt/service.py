@@ -7,6 +7,7 @@ from robotic_classroom.hardware.interface import HardwareService
 from robotic_classroom.pan_tilt.controller import PanTiltController
 from robotic_classroom.pan_tilt.executor import PanTiltExecutionStatus, PanTiltExecutor
 from robotic_classroom.pan_tilt.models import PanTiltPlan
+from robotic_classroom.safety.supervisor import SafetySupervisor
 from robotic_classroom.tracking.service import TrackingService
 
 
@@ -22,19 +23,24 @@ class PanTiltPlanningService:
         *,
         hardware: HardwareService | None = None,
         calibration: PanTiltConfig | None = None,
+        safety: SafetySupervisor | None = None,
     ) -> None:
         self.tracking = tracking
         self.config = config
         self.controller = PanTiltController(config, pan, tilt)
         self.executor = (
-            PanTiltExecutor(hardware, config, calibration)
+            PanTiltExecutor(hardware, config, calibration, safety)
             if hardware is not None and calibration is not None
             else None
         )
         self._thread: threading.Thread | None = None
         self._stop_event = threading.Event()
         self._lock = threading.RLock()
-        self._plan = self.controller.update(self.tracking.observation())
+        self._command_lock = threading.RLock()
+        self._center_hold = config.startup_center_hold
+        self._plan = self.controller.update(
+            self.tracking.observation(), center_hold=self._center_hold,
+        )
 
     def start(self) -> None:
         with self._lock:
@@ -51,12 +57,33 @@ class PanTiltPlanningService:
     def _run(self) -> None:
         interval = self.config.poll_interval_ms / 1000.0
         while not self._stop_event.is_set():
-            plan = self.controller.update(self.tracking.observation())
+            self._cycle()
+            self._stop_event.wait(interval)
+
+    def _cycle(self) -> None:
+        # Serialize mode changes with any pending tracking write. Once center()
+        # returns, an older tracking plan cannot overwrite its request.
+        with self._command_lock:
+            plan = self.controller.update(
+                self.tracking.observation(), center_hold=self._center_hold,
+            )
             if self.executor is not None:
                 self.executor.apply(plan)
             with self._lock:
                 self._plan = plan
-            self._stop_event.wait(interval)
+
+    @property
+    def center_hold(self) -> bool:
+        with self._lock:
+            return self._center_hold
+
+    def center(self) -> None:
+        with self._command_lock, self._lock:
+            self._center_hold = True
+
+    def resume_tracking(self) -> None:
+        with self._command_lock, self._lock:
+            self._center_hold = False
 
     def plan(self) -> PanTiltPlan:
         with self._lock:

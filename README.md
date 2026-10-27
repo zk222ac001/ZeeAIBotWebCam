@@ -4,23 +4,28 @@
 
 ZeeAIBotWebCam is a production-oriented research and teaching platform built around **Hiwonder TurboPi + Raspberry Pi + Sony IMX500 AI Camera + ReSpeaker XVF3800 + Python + Edge AI + WebRTC**.
 
-The software now includes the hardware safety boundary, single-owner camera and audio metadata services, anonymous person tracking, plan-only pan/tilt control, ReSpeaker VAD/DoA, active-speaker fusion, and the first WebRTC telepresence transport. Physical robot motion remains intentionally locked until calibration is complete.
+The software includes camera and audio services, anonymous person tracking, bounded pan/tilt execution, active-speaker fusion, WebRTC telepresence and supervised chassis autonomy. Physical validation and staged execution gates remain essential.
 
-## Project status
+## Current development status
 
-| Phase | Scope | Status |
-|---|---|---|
-| Phase 0 | Engineering analysis and architecture | ✅ Documented |
-| Phase 1 | Development environment and software foundation | ✅ Implemented |
-| Phase 2 | Physical hardware validation | 🧪 Baseline validated; calibration follow-ups remain |
-| Phase 3 | TurboPi hardware adapter + safety supervisor | ✅ Implemented |
-| Phase 4 | Sony IMX500 camera service + person detection | ✅ Implemented; real Pi validation required |
-| Phase 5 | Anonymous person tracking and lost-target handling | ✅ Implemented |
-| Phase 6 | Bounded pan/tilt tracking planner | ✅ Implemented in plan-only mode |
-| Phase 7 | ReSpeaker XVF3800 VAD + DoA service | ✅ Implemented; real hardware validation required |
-| Phase 8 | Vision + audio active-speaker fusion | ✅ Implemented; geometry calibration required |
-| Phase 9 | WebRTC telepresence session + video transport | ✅ Implemented; real LAN validation required |
-| Phase 10+ | Conference UI, remote audio, authentication, production hardening | ⏳ Planned |
+The responsive **ZeeAI Studio** interface now starts at `/`: a room overview,
+live WebRTC sessions, guided camera framing, deliberate robot controls and live
+release readiness. It uses local assets included in the Python package and
+needs no frontend build service. See [Studio deployment](docs/studio-deployment.md)
+for activation, separate access tokens and a private Pi-hosted deployment path.
+The professional interface remains a supervised preview until the physical and
+security acceptance checks are complete.
+
+The implementation now includes WebRTC audio/video, operator controls, calibrated pan/tilt execution, supervised chassis autonomy, deployment and readiness tooling. Older phase documents below describe historical milestones, not current configuration.
+
+The default `config.yaml` uses mocked hardware with chassis motion disabled. `config.pi.yaml` enables real hardware, pan/tilt execution and manual chassis motion; autonomous chassis execution remains **plan-only**, unarmed at startup, rotation-only, with forward/search disabled and pilot validation incomplete.
+
+The Pi camera now starts in **center and hold** mode for setup. Open
+`/api/pan-tilt/ui` to center and hold the calibrated neutral pose or explicitly
+resume automatic camera tracking. Servo bounds and safety gates remain in force;
+the UI reports submitted commands rather than measured physical position.
+
+See [the classroom autonomy roadmap](docs/classroom-autonomy-roadmap.md) for the current implementation, software verification, physical acceptance work and staged path to affordable classroom autonomy.
 
 ## Safety baseline
 
@@ -172,7 +177,7 @@ GET    /conference
 GET    /api/safety
 ```
 
-There is deliberately **no public robot movement endpoint**.
+Manual chassis control is available through `/api/control/motion` and `/api/control/ui`, subject to the configured safety gates. A normal STOP also disarms autonomy; emergency stop additionally inhibits new pan/tilt commands.
 
 ## Test the real IMX500 while robot movement stays mocked
 
@@ -321,6 +326,6 @@ aiortc:
 
 https://github.com/aiortc/aiortc
 
-## Next phase
+## Next development milestone
 
-**Phase 10** should add the operator/conference UI, authenticated session lifecycle, remote speaker-output validation, camera/microphone indicators, deployment/TLS boundaries, and observability. Real active-speaker servo execution and remote driving should remain blocked until the physical servo, microphone orientation, motor mapping, and safety-calibration gates are complete.
+Complete and validate the [autonomy reliability work](docs/classroom-autonomy-roadmap.md), then improve stationary speaker framing and calibrated rotation-only recentering. Forward following and room navigation remain separate future stages.

@@ -147,6 +147,20 @@ export CONFERENCE_ECHO_REFERENCE_VALIDATED=true
 
 The software does not fabricate AEC. It records the validation state and blocks `aec_reference` mode until the path has been physically proven.
 
+### Microphone ownership and reconnects
+
+The aiortc backend owns one ALSA microphone capture and relays its audio to browser
+sessions. Closing one browser session releases only that session's subscription;
+closing the last session explicitly stops the capture tracks and releases ALSA.
+Failed or cancelled negotiations release their subscriptions as well. Negotiations
+are serialized so concurrent connection attempts respect the configured session limit.
+
+This fixes the prior per-session capture behavior, which could fail with an ALSA
+input/output error when another tab or a leaked capture already owned the ReSpeaker.
+An older running process with a leaked capture requires a service restart after
+installing this change. Use one conference tab for classroom audio testing to avoid
+duplicate audio and acoustic loops; shared capture does not provide echo cancellation.
+
 ## Safe first Phase 11 run
 
 ```bash

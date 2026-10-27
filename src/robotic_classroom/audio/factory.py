@@ -14,4 +14,5 @@ def create_audio_backend(settings: Settings) -> AudioBackend:
     return XVF3800USBBackend(
         vendor_id=settings.audio.vendor_id,
         product_id=settings.audio.product_id,
+        doa_source=settings.audio.doa_source,
     )

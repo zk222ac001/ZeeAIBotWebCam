@@ -17,7 +17,8 @@ hardware:
       center: 1500
       minimum: 1350
       maximum: 1650
-      inverted: false
+      # Stationary-target check: increasing pulse moves the target right in the image.
+      inverted: true
     tilt:
       channel: 2
       center: 1500
@@ -52,6 +53,8 @@ tracking:
 pan_tilt_control:
   enabled: true
   mode: execute
+  # Hold the calibrated neutral pose until the operator resumes camera tracking.
+  startup_center_hold: true
   poll_interval_ms: 50
   pan_gain_us: 220.0
   tilt_gain_us: 160.0
@@ -87,7 +90,9 @@ audio:
   poll_interval_ms: 100
   doa_smoothing_alpha: 0.35
   vad_hangover_ms: 350
-  orientation_offset_degrees: 251.68
+  # Processed-source front mean 167.84 deg; left/right measured beside chassis.
+  orientation_offset_degrees: 192.16
+  doa_source: processed
   orientation_calibrated: true
 
 active_speaker:
@@ -95,7 +100,7 @@ active_speaker:
   poll_interval_ms: 100
   geometry_calibrated: true
   camera_horizontal_fov_degrees: 70.0
-  doa_inverted: true
+  doa_inverted: false
   outside_fov_margin_degrees: 5.0
   max_match_error_degrees: 25.0
   minimum_candidate_score: 0.30
@@ -150,6 +155,10 @@ safety:
   # sensing, control lease/heartbeat gating, explicit STOP, and the independent
   # deadman watchdog on real hardware.
   motion_enabled: true
+  # Conservative motion cutoff: Hiwonder recommends recharging below 7 V.
+  # https://docs.hiwonder.com/projects/TurboPi/en/standard/docs/1.getting_ready.html#check-battery-level
+  # This is not cell-level protection or a battery power disconnect.
+  minimum_battery_voltage: 7.0
   minimum_obstacle_distance_cm: 30.0
   heartbeat_timeout_ms: 750
   control_lease_ttl_seconds: 10.0

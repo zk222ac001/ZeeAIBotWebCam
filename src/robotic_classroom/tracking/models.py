@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
+from time import monotonic
 
 
 class TrackingState(str, Enum):
@@ -29,3 +30,4 @@ class TrackingObservation:
     in_dead_zone_y: bool | None = None
     source: str = "visual"
     source_sequence: int | None = None
+    timestamp_monotonic: float = field(default_factory=monotonic)

@@ -7,6 +7,7 @@ from robotic_classroom.tracking.tracker import PersonTracker
 def snapshot(sequence: int, people: tuple[PersonDetection, ...]) -> CameraSnapshot:
     return CameraSnapshot(
         backend="test",
+        timestamp_monotonic=10.0,
         connected=True,
         frame_width=1000,
         frame_height=500,

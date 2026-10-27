@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
+from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Request, Response
+from fastapi import Depends, FastAPI, HTTPException, Request, Response
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from robotic_classroom.audio.factory import create_audio_backend
@@ -13,17 +15,26 @@ from robotic_classroom.camera.factory import create_camera_backend
 from robotic_classroom.camera.service import CameraService
 from robotic_classroom.conference.factory import create_conference_backend
 from robotic_classroom.conference.router import router as conference_router
+from robotic_classroom.conference.security import require_conference_access
 from robotic_classroom.conference.service import ConferenceService
 from robotic_classroom.control.router import router as control_router
 from robotic_classroom.control.security import require_control_access
+from robotic_classroom.control.state_machine import RobotState
 from robotic_classroom.core.config import load_settings
+from robotic_classroom.core.freshness import is_fresh
 from robotic_classroom.fusion.service import ActiveSpeakerService
 from robotic_classroom.hardware.factory import create_hardware_service
+from robotic_classroom.pan_tilt.router import router as pan_tilt_router
 from robotic_classroom.pan_tilt.service import PanTiltPlanningService
 from robotic_classroom.safety.supervisor import SafetySupervisor
 from robotic_classroom.tracking.service import TrackingService
+from robotic_classroom.web.ui import router as ui_router
 
 settings = load_settings()
+
+
+def require_media_access(request: Request) -> None:
+    require_conference_access(request, settings.conference)
 
 
 class LeaseRequest(BaseModel):
@@ -68,6 +79,7 @@ async def lifespan(app: FastAPI):
         settings.hardware.pan_tilt.tilt,
         hardware=hardware,
         calibration=settings.hardware.pan_tilt,
+        safety=supervisor,
     )
     pan_tilt.start()
 
@@ -85,7 +97,21 @@ async def lifespan(app: FastAPI):
             hardware.stop()
             raise
 
-    active_speaker = ActiveSpeakerService(camera, audio, settings.active_speaker)
+    def pan_angle_at(frame_timestamp: float) -> float | None:
+        if pan_tilt.executor is None:
+            return None
+        pulse = pan_tilt.executor.settled_pan_pulse(
+            frame_timestamp, settings.active_speaker.pan_settle_ms,
+        )
+        if pulse is None:
+            return None
+        axis = settings.hardware.pan_tilt.pan
+        direction = -1.0 if axis.inverted else 1.0
+        return (pulse - axis.center) * settings.active_speaker.pan_degrees_per_us * direction
+
+    active_speaker = ActiveSpeakerService(
+        camera, audio, settings.active_speaker, pan_angle_at=pan_angle_at,
+    )
     active_speaker.start()
     tracking.set_active_speaker(active_speaker)
 
@@ -148,13 +174,35 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="ZeeAIBotWebCam",
-    version="1.0.0",
+    version="0.1.0",
     description="AI-powered robotic classroom telepresence platform.",
     lifespan=lifespan,
 )
 app.include_router(conference_router)
+app.include_router(pan_tilt_router)
 app.include_router(control_router)
 app.include_router(autonomy_router)
+app.include_router(ui_router)
+app.mount("/assets", StaticFiles(directory=Path(__file__).parent / "static"), name="assets")
+
+
+@app.middleware("http")
+async def response_security_headers(request: Request, call_next):
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["Referrer-Policy"] = "same-origin"
+    response.headers["Permissions-Policy"] = "camera=(), microphone=(self)"
+    if request.url.path.startswith("/api/") or request.url.path in {
+        "/", "/conference", "/operator", "/readiness", "/health", "/ready",
+    }:
+        response.headers["Cache-Control"] = "no-store"
+        if response.headers.get("content-type", "").startswith("text/html"):
+            response.headers["Content-Security-Policy"] = (
+                "default-src 'self'; script-src 'self'; style-src 'self'; "
+                "img-src 'self' blob: data:; media-src 'self' blob:; "
+                "connect-src 'self'; object-src 'none'; base-uri 'self'"
+            )
+    return response
 
 
 @app.get("/health")
@@ -242,7 +290,9 @@ def ready() -> dict[str, str]:
 
 @app.get("/api/sensors")
 def sensors() -> dict[str, object]:
-    snapshot = app.state.hardware.sensors()
+    snapshot = app.state.safety.sensor_snapshot()
+    if snapshot is None:
+        return {"battery_voltage": None, "distance_cm": None, "infrared": None}
     return {
         "battery_voltage": snapshot.battery_voltage,
         "distance_cm": snapshot.distance_cm,
@@ -250,7 +300,7 @@ def sensors() -> dict[str, object]:
     }
 
 
-@app.get("/api/camera/status")
+@app.get("/api/camera/status", dependencies=[Depends(require_media_access)])
 def camera_status() -> dict[str, object]:
     status = app.state.camera.status()
     return {
@@ -263,7 +313,7 @@ def camera_status() -> dict[str, object]:
     }
 
 
-@app.get("/api/camera/detections")
+@app.get("/api/camera/detections", dependencies=[Depends(require_media_access)])
 def camera_detections() -> dict[str, object]:
     snapshot = app.state.camera.snapshot()
     return {
@@ -287,7 +337,7 @@ def camera_detections() -> dict[str, object]:
     }
 
 
-@app.get("/api/camera/frame.jpg")
+@app.get("/api/camera/frame.jpg", dependencies=[Depends(require_media_access)])
 def camera_frame() -> Response:
     jpeg = app.state.camera.jpeg()
     if jpeg is None:
@@ -295,7 +345,7 @@ def camera_frame() -> Response:
     return Response(content=jpeg, media_type="image/jpeg")
 
 
-@app.get("/api/tracking/status")
+@app.get("/api/tracking/status", dependencies=[Depends(require_media_access)])
 def tracking_status() -> dict[str, object]:
     observation = app.state.tracking.observation()
     return {
@@ -322,7 +372,7 @@ def tracking_status() -> dict[str, object]:
     }
 
 
-@app.get("/api/pan-tilt/plan")
+@app.get("/api/pan-tilt/plan", dependencies=[Depends(require_media_access)])
 def pan_tilt_plan() -> dict[str, object]:
     plan = app.state.pan_tilt.plan()
     execution = app.state.pan_tilt.execution_status()
@@ -331,6 +381,7 @@ def pan_tilt_plan() -> dict[str, object]:
         "sequence": plan.sequence,
         "target_id": plan.target_id,
         "mode": settings.pan_tilt_control.mode,
+        "center_hold": app.state.pan_tilt.center_hold,
         "apply_to_hardware": bool(execution and execution.executed),
         "calibration_validated": settings.hardware.pan_tilt.calibration_validated,
         "hardware_enabled": settings.hardware.pan_tilt.enabled,
@@ -365,7 +416,7 @@ def pan_tilt_plan() -> dict[str, object]:
     }
 
 
-@app.get("/api/audio/status")
+@app.get("/api/audio/status", dependencies=[Depends(require_media_access)])
 def audio_status() -> dict[str, object]:
     observation = app.state.audio.observation()
     return {
@@ -376,6 +427,10 @@ def audio_status() -> dict[str, object]:
         "speech_state": observation.speech_state.value,
         "speech_active": observation.speech_active,
         "doa_degrees_raw": observation.doa_degrees_raw,
+        "doa_source": observation.doa_source,
+        "doa_degrees_primary": observation.doa_degrees_primary,
+        "doa_degrees_processed": observation.doa_degrees_processed,
+        "doa_degrees_auto_selected": observation.doa_degrees_auto_selected,
         "doa_degrees": observation.doa_degrees,
         "orientation_calibrated": observation.orientation_calibrated,
         "firmware_version": observation.firmware_version,
@@ -383,7 +438,7 @@ def audio_status() -> dict[str, object]:
     }
 
 
-@app.get("/api/active-speaker/status")
+@app.get("/api/active-speaker/status", dependencies=[Depends(require_media_access)])
 def active_speaker_status() -> dict[str, object]:
     observation = app.state.active_speaker.observation()
     return {
@@ -420,18 +475,32 @@ async def readiness() -> dict[str, object]:
     categories: dict[str, dict[str, object]] = {}
 
     runtime_blockers = []
+    if hardware.backend == "mock" or cfg.hardware.mode != "real":
+        runtime_blockers.append("hardware backend is mocked")
+    if camera.backend == "mock" or cfg.camera.mode != "imx500":
+        runtime_blockers.append("camera backend is mocked")
+    if audio.backend == "mock" or cfg.audio.mode != "xvf3800_usb":
+        runtime_blockers.append("audio backend is mocked")
     if not hardware.connected:
         runtime_blockers.append("hardware not connected")
     if not camera.connected or not camera.running:
         runtime_blockers.append("camera not ready")
     if not audio.connected or not audio.running:
         runtime_blockers.append("audio not ready")
+    if not is_fresh(
+        app.state.camera.snapshot().timestamp_monotonic, cfg.tracking.observation_timeout_ms
+    ):
+        runtime_blockers.append("camera observations stale")
+    if not is_fresh(audio.timestamp_monotonic, cfg.active_speaker.observation_timeout_ms):
+        runtime_blockers.append("audio observations stale")
     categories["runtime"] = {
         "ready": not runtime_blockers,
         "blockers": runtime_blockers,
     }
 
     telepresence_blockers = []
+    if conference.backend == "mock" or cfg.conference.mode != "aiortc":
+        telepresence_blockers.append("conference backend is mocked")
     if not conference.running:
         telepresence_blockers.append("conference service not running")
     if not cfg.conference.publish_video:
@@ -454,6 +523,13 @@ async def readiness() -> dict[str, object]:
         safety_blockers.append("control lease not required")
     if not cfg.hardware.motor_mapping_validated:
         safety_blockers.append("motor mapping not validated")
+    if safety.state.state in {
+        RobotState.STARTING, RobotState.EMERGENCY_STOP, RobotState.FAULT, RobotState.SHUTDOWN,
+    }:
+        safety_blockers.append(f"robot state is {safety.state.state.value}")
+    sensor_blocker = safety.sensor_blocker()
+    if sensor_blocker:
+        safety_blockers.append(sensor_blocker)
     categories["safety"] = {
         "ready": not safety_blockers,
         "blockers": safety_blockers,
@@ -494,6 +570,27 @@ async def readiness() -> dict[str, object]:
     }
 
     autonomy_blockers = []
+    for name in ("runtime", "telepresence", "safety", "privacy_security", "aec",
+                 "classroom_pilot"):
+        if not categories[name]["ready"]:
+            autonomy_blockers.append(f"{name} prerequisites incomplete")
+    if not cfg.autonomy.enabled or not autonomy.running:
+        autonomy_blockers.append("autonomy service disabled or not running")
+    if not cfg.safety.motion_enabled:
+        autonomy_blockers.append("chassis motion disabled")
+    if cfg.safety.minimum_battery_voltage is None:
+        autonomy_blockers.append("battery cutoff not configured")
+    if not cfg.tracking.enabled:
+        autonomy_blockers.append("tracking disabled")
+    if getattr(app.state.pan_tilt, "center_hold", False):
+        autonomy_blockers.append("camera tracking paused for centering")
+    if (not cfg.pan_tilt_control.enabled or cfg.pan_tilt_control.mode != "execute"
+        or not cfg.hardware.pan_tilt.enabled
+        or not cfg.hardware.pan_tilt.calibration_validated):
+        autonomy_blockers.append("pan/tilt execution or calibration disabled")
+    execution = app.state.pan_tilt.execution_status()
+    if execution is None or not execution.executed or execution.last_error:
+        autonomy_blockers.append("pan/tilt execution unavailable")
     if cfg.autonomy.mode != "execute":
         autonomy_blockers.append("autonomy remains plan-only")
     if cfg.autonomy.require_pilot_validation and not cfg.autonomy.pilot_validated:
@@ -520,6 +617,8 @@ async def readiness() -> dict[str, object]:
     return {
         "production_ready": production_ready,
         "autonomous_motion_ready": bool(categories["autonomous_motion"]["ready"]),
+        "autonomous_motion_scope": "supervised target tracking; excludes navigation and docking",
+        "unattended_navigation_ready": False,
         "categories": categories,
         "autonomy": {
             "mode": autonomy.mode,
@@ -541,6 +640,8 @@ def safety_status() -> dict[str, object]:
         "motion_active": supervisor.motion_active,
         "control_lease_required": settings.safety.require_control_lease,
         "minimum_obstacle_distance_cm": settings.safety.minimum_obstacle_distance_cm,
+        "minimum_battery_voltage": settings.safety.minimum_battery_voltage,
+        "sensor_blocker": supervisor.sensor_blocker(),
     }
 
 
@@ -567,7 +668,13 @@ def heartbeat(request: LeaseTokenRequest) -> dict[str, str]:
 
 @app.post("/api/control/emergency-stop")
 def emergency_stop() -> dict[str, str]:
-    app.state.safety.emergency_stop()
+    stopped = app.state.safety.emergency_stop()
+    app.state.autonomy.disarm()
+    if not stopped or app.state.safety.motion_active:
+        raise HTTPException(
+            status_code=503,
+            detail="Emergency stop latched; hardware stop failed; physical motor inhibit required",
+        )
     return {"status": "emergency stop active"}
 
 
@@ -576,3 +683,4 @@ def reset_emergency_stop(request: LeaseTokenRequest) -> dict[str, str]:
     if not app.state.safety.reset_emergency_stop(request.token):
         raise HTTPException(status_code=403, detail="valid control lease required")
     return {"status": "emergency stop reset"}
+

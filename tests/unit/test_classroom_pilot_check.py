@@ -55,6 +55,51 @@ def values():
 
 
 class PilotTests(unittest.TestCase):
+    def test_preflight_requires_connected_conference_and_two_visible_people(self):
+        data = values()
+        self.assertEqual(pilot.preflight_blockers(data, {}), [])
+        data["conference"]["connected_sessions"] = 0
+        data["camera"]["people_count"] = 1
+        blockers = pilot.preflight_blockers(data, {})
+        self.assertTrue(any("conference" in b.lower() for b in blockers))
+        self.assertTrue(any("two" in b.lower() for b in blockers))
+
+    def test_preflight_rejects_unsafe_or_unreadable_services(self):
+        for failure in ("motion", "watchdog", "fault", "camera", "audio", "read_error"):
+            with self.subTest(failure=failure):
+                data, errors = values(), {}
+                if failure == "motion":
+                    data["safety"]["motion_active"] = True
+                elif failure == "watchdog":
+                    data["safety"]["watchdog_running"] = False
+                elif failure == "fault":
+                    data["safety"]["state"] = "fault"
+                elif failure in ("camera", "audio"):
+                    data[failure]["connected"] = False
+                else:
+                    errors["safety"] = "HTTP 503"
+                self.assertTrue(pilot.preflight_blockers(data, errors))
+
+    def test_failed_preflight_does_not_start_timer_or_collect_trial_samples(self):
+        data = values()
+        data["conference"]["connected_sessions"] = 0
+        data["camera"]["people_count"] = 1
+        with tempfile.TemporaryDirectory() as folder, \
+                patch.object(pilot, "StatusClient"), \
+                patch.object(pilot, "read_sample", return_value=(data, {})) as read, \
+                patch.object(pilot, "phase_at") as phase, \
+                contextlib.redirect_stdout(io.StringIO()):
+            code = pilot.main(["--duration", "600", "--output-dir", folder])
+            report = json.loads(next(Path(folder).glob("*/report.json")).read_text())
+            self.assertEqual(code, 1)
+            self.assertEqual(report["stop_reason"], "preflight_failed")
+            self.assertEqual(report["sample_count"], 0)
+            self.assertEqual(report["elapsed_seconds"], 0)
+            self.assertTrue(report["preflight_blockers"])
+            self.assertTrue(all(v == "NOT_TESTED" for v in report["manual_checks"].values()))
+            read.assert_called_once()
+            phase.assert_not_called()
+
     def test_healthy_snapshot_is_not_overall_pass(self):
         data = values()
         self.assertEqual(pilot.assess(data, {}, "speaker_switch"), [])

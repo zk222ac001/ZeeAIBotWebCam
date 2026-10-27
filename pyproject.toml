@@ -36,6 +36,9 @@ robotic-classroom = "robotic_classroom.main:run"
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+"robotic_classroom.web" = ["templates/*.html", "static/*.css", "static/*.js", "static/*.svg"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]

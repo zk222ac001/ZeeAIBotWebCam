@@ -34,9 +34,14 @@ class XVF3800USBBackend:
     SELECTED_AZIMUTH_CMDID = 11
     SELECTED_AZIMUTH_PAYLOAD_LENGTH = 8
 
-    def __init__(self, vendor_id: int, product_id: int) -> None:
+    def __init__(
+        self, vendor_id: int, product_id: int, *, doa_source: str = "auto_selected"
+    ) -> None:
+        if doa_source not in {"processed", "auto_selected", "primary"}:
+            raise ValueError("Unsupported XVF3800 direction source")
         self.vendor_id = vendor_id
         self.product_id = product_id
+        self.doa_source = doa_source
         self._usb_core: Any | None = None
         self._usb_util: Any | None = None
         self._device: Any | None = None
@@ -140,12 +145,11 @@ class XVF3800USBBackend:
             return None
         return math.degrees(value) % 360.0
 
-    def _read_processed_azimuth(self) -> float | None:
-        """Return the XVF3800 auto-selected processed beamformer azimuth.
+    def _read_selected_azimuths(self) -> tuple[float | None, float | None]:
+        """Read speech-processed direction (index 0) and auto-selected beam (index 1).
 
-        The device exposes two selected azimuth floats in radians. Hardware
-        diagnostics on firmware 2.0.10 showed the second value tracks a moving
-        speaker more reliably than DOA_VALUE during active-speaker calibration.
+        XMOS documents that the processed value is NaN without a speech-bearing
+        focused beam. An unavailable value must not silently switch sources.
         """
         try:
             payload = self._read_control(
@@ -153,11 +157,10 @@ class XVF3800USBBackend:
                 cmdid=self.SELECTED_AZIMUTH_CMDID,
                 payload_length=self.SELECTED_AZIMUTH_PAYLOAD_LENGTH,
             )
-            _, auto_selected = struct.unpack("<ff", payload)
-            return self._radians_to_degrees(auto_selected)
+            processed, auto_selected = struct.unpack("<ff", payload)
+            return self._radians_to_degrees(processed), self._radians_to_degrees(auto_selected)
         except (RuntimeError, struct.error, ValueError):
-            # Keep the primary DOA_VALUE path available as a safe fallback.
-            return None
+            return None, None
 
     def observation(self) -> AudioObservation:
         if not self._running:
@@ -184,8 +187,12 @@ class XVF3800USBBackend:
         if doa_angle > 359:
             raise RuntimeError(f"XVF3800 returned invalid DoA angle: {doa_angle}")
 
-        processed_azimuth = self._read_processed_azimuth()
-        chosen_doa = processed_azimuth if processed_azimuth is not None else float(doa_angle)
+        processed_azimuth, auto_selected_azimuth = self._read_selected_azimuths()
+        chosen_doa = {
+            "processed": processed_azimuth,
+            "auto_selected": auto_selected_azimuth,
+            "primary": float(doa_angle),
+        }[self.doa_source]
 
         self._sequence += 1
         speech_active = bool(vad_flag)
@@ -200,11 +207,12 @@ class XVF3800USBBackend:
             doa_degrees=chosen_doa,
             orientation_calibrated=False,
             firmware_version=self._firmware_version,
-            message=(
-                "XVF3800 VAD/processed beamformer azimuth available"
-                if processed_azimuth is not None
-                else "XVF3800 VAD/DoA metadata available (primary fallback)"
-            ),
+            doa_source=self.doa_source,
+            doa_degrees_primary=float(doa_angle),
+            doa_degrees_processed=processed_azimuth,
+            doa_degrees_auto_selected=auto_selected_azimuth,
+            message=f"XVF3800 VAD/{self.doa_source} direction "
+                    + ("available" if chosen_doa is not None else "unavailable"),
         )
 
     def _dispose(self) -> None:

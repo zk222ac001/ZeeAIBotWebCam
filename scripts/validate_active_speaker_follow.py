@@ -15,6 +15,20 @@ def get_json(path: str) -> dict[str, object]:
         return json.loads(response.read().decode("utf-8"))
 
 
+def speaker_drives_tracking(active: dict, tracking: dict, execution: dict) -> bool:
+    """Compare the current selection episode, never a hard-coded speaker label."""
+    speaker_id = active.get("speaker_id")
+    return bool(
+        active.get("state") == "speaker_selected"
+        and isinstance(speaker_id, str) and speaker_id
+        and tracking.get("source") == "active_speaker"
+        and tracking.get("state") == "tracking"
+        and tracking.get("target_id") == speaker_id
+        and execution.get("executed") is True
+        and not execution.get("last_error")
+    )
+
+
 def main() -> int:
     print("ZeeAIBotWebCam active-speaker follow validation")
     print("Keep ./scripts/run_pi.sh running in another terminal.")
@@ -89,10 +103,10 @@ def main() -> int:
             f"last_tilt={execution.get('last_tilt_pulse')} error={error!r}"
         )
 
-        if target_id == "Speaker-01" and executed and not error:
-            print("RESULT: active speaker is driving the calibrated pan/tilt path.")
-        elif state == "speaker_selected" and target_id != "Speaker-01":
-            print("CHECK: speaker selected, but tracking has not switched to Speaker-01 yet.")
+        if speaker_drives_tracking(active, tracking, execution):
+            print("STATUS: selected-speaker tracking and a submitted pan/tilt command are reported.")
+        elif state == "speaker_selected":
+            print("CHECK: selected-speaker tracking or pan/tilt submission is not confirmed.")
         elif state != "speaker_selected":
             print("WAIT: keep speaking while remaining visible to the camera.")
 
@@ -112,3 +126,4 @@ if __name__ == "__main__":
         raise SystemExit(main())
     except KeyboardInterrupt:
         print("\nValidation stopped.")
+

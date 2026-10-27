@@ -54,4 +54,6 @@ def autonomy_arm(payload: AutonomyArmRequest, request: Request) -> dict[str, obj
 def autonomy_stop(request: Request) -> dict[str, object]:
     """Disarm autonomy and issue STOP. Stopping never requires a lease."""
     request.app.state.autonomy.disarm()
+    if request.app.state.safety.motion_active:
+        raise HTTPException(status_code=503, detail="Hardware stop failed; motion state unknown")
     return _status_payload(request)

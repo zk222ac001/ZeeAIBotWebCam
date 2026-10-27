@@ -3,7 +3,12 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from robotic_classroom.core.config import AutonomyConfig, ConferenceConfig, load_settings
+from robotic_classroom.core.config import (
+    AutonomyConfig,
+    ConferenceConfig,
+    SafetyConfig,
+    load_settings,
+)
 
 
 def test_default_configuration_loads() -> None:
@@ -48,3 +53,15 @@ def test_phase14_safe_defaults_require_pilot_validation() -> None:
     assert config.execution_policy == "rotation_only"
     assert config.require_pilot_validation is True
     assert config.pilot_validated is False
+
+
+@pytest.mark.parametrize("voltage", [0, -1, float("nan"), float("inf")])
+def test_battery_cutoff_requires_positive_finite_voltage(voltage) -> None:
+    with pytest.raises(ValidationError):
+        SafetyConfig(minimum_battery_voltage=voltage)
+
+
+def test_battery_cutoff_can_be_configured_without_guessing_default(monkeypatch) -> None:
+    assert SafetyConfig().minimum_battery_voltage is None
+    monkeypatch.setenv("SAFETY_MINIMUM_BATTERY_VOLTAGE", "6.5")
+    assert load_settings("config.yaml").safety.minimum_battery_voltage == 6.5

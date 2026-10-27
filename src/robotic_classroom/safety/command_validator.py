@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import math
+
 from robotic_classroom.control.commands import MotionCommand
 
 
@@ -13,7 +15,7 @@ class CommandValidator:
             ("sideways", command.sideways),
             ("rotation", command.rotation),
         ):
-            if abs(value) > self.maximum_absolute_command:
+            if not math.isfinite(value) or abs(value) > self.maximum_absolute_command:
                 raise ValueError(
                     f"{name} command {value} exceeds +/-{self.maximum_absolute_command}"
                 )

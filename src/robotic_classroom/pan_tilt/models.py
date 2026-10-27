@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
+from time import monotonic
 
 
 class PanTiltPlanState(str, Enum):
@@ -31,3 +32,4 @@ class PanTiltPlan:
     tilt: AxisPlan
     apply_to_hardware: bool
     message: str
+    timestamp_monotonic: float = field(default_factory=monotonic)

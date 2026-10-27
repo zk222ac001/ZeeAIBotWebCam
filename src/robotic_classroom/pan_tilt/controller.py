@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+from time import monotonic
 
 from robotic_classroom.core.config import AxisConfig, PanTiltControlConfig
 from robotic_classroom.pan_tilt.models import AxisPlan, PanTiltPlan, PanTiltPlanState
@@ -68,7 +69,9 @@ class PanTiltController:
             inverted=axis.inverted,
         )
 
-    def update(self, observation: TrackingObservation) -> PanTiltPlan:
+    def update(
+        self, observation: TrackingObservation, *, center_hold: bool = False
+    ) -> PanTiltPlan:
         self._sequence += 1
 
         if not self.config.enabled:
@@ -76,6 +79,11 @@ class PanTiltController:
             desired_pan = self.pan_config.center
             desired_tilt = self.tilt_config.center
             message = "Pan/tilt planning disabled"
+        elif center_hold:
+            desired_pan = self.pan_config.center
+            desired_tilt = self.tilt_config.center
+            state = PanTiltPlanState.HOLDING
+            message = "Returning to calibrated center; automatic tracking paused"
         elif observation.state == TrackingState.TRACKING:
             if (
                 observation.error_x is None
@@ -129,11 +137,21 @@ class PanTiltController:
 
         self._pan_pulse = self._slew(self._pan_pulse, desired_pan)
         self._tilt_pulse = self._slew(self._tilt_pulse, desired_tilt)
+        if center_hold and self.config.enabled and (
+            self._pan_pulse == self.pan_config.center
+            and self._tilt_pulse == self.tilt_config.center
+        ):
+            state = PanTiltPlanState.CENTERED
+            message = "Holding calibrated center; automatic tracking paused"
 
         return PanTiltPlan(
+            # A latched operator center request is independent of perception.
+            # Normal tracking retains its producer timestamp and freshness gates.
+            timestamp_monotonic=(monotonic() if center_hold
+                                 else observation.timestamp_monotonic),
             state=state,
             sequence=self._sequence,
-            target_id=observation.target_id,
+            target_id=None if center_hold else observation.target_id,
             pan=self._axis_plan(self.pan_config, desired_pan, self._pan_pulse),
             tilt=self._axis_plan(self.tilt_config, desired_tilt, self._tilt_pulse),
             apply_to_hardware=False,

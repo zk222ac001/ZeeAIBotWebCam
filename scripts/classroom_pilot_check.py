@@ -192,6 +192,36 @@ def read_sample(client: StatusClient) -> tuple[dict[str, Any], dict[str, str]]:
     return values, errors
 
 
+def preflight_blockers(values: dict[str, Any], errors: dict[str, str]) -> list[str]:
+    """Check observable starting conditions before counting trial time.
+
+    This is one status snapshot, not proof of media quality or physical safety.
+    """
+    if errors:
+        return [f"Could not read {name} status; resolve the connection before starting."
+                for name in sorted(errors)]
+    blockers = []
+    safety = values.get("safety", {})
+    if safety.get("motion_active") is not False:
+        blockers.append("Chassis motion is active or unknown; use the existing robot STOP.")
+    if safety.get("watchdog_running") is not True:
+        blockers.append("Safety watchdog is not confirmed running.")
+    if safety.get("state") != "idle":
+        blockers.append("Robot must be idle, without an emergency-stop or fault latch.")
+    for name in ("camera", "audio"):
+        service = values.get(name, {})
+        if service.get("connected") is not True or service.get("running") is not True:
+            blockers.append(f"{name.capitalize()} is not connected and running.")
+    conference = values.get("conference", {})
+    connected = conference.get("connected_sessions")
+    if conference.get("running") is not True or not number(connected) or connected < 1:
+        blockers.append("Connect one conference session in the browser before starting.")
+    people = values.get("camera", {}).get("people_count")
+    if not number(people) or people < 2:
+        blockers.append("Place two local participants inside the camera view before starting.")
+    return blockers
+
+
 def assess(values: dict[str, Any], errors: dict[str, str], phase: str) -> list[str]:
     flags = [f"{name}:read_failed" for name in errors]
     safety = values.get("safety")
@@ -270,13 +300,65 @@ def phase_at(elapsed: float, duration: float) -> tuple[str, str]:
     return PHASES[min(len(PHASES) - 1, int(max(0.0, elapsed) / duration * len(PHASES)))]
 
 
+def phase_metrics(records: list[dict[str, Any]]) -> dict[str, Any]:
+    """Sample-weighted telemetry, with explicit denominators and unknowns.
+
+    Polls are not independent observations or a measurement of speaker accuracy.
+    In particular, missing responses must never count as successful quiet samples.
+    """
+    result = {}
+    for phase, _instruction in PHASES:
+        rows = [row for row in records if row.get("phase") == phase]
+        states: Counter[str] = Counter()
+        center_errors = []
+        angular_errors = []
+        for row in rows:
+            if "speaker" in row.get("errors", {}):
+                continue
+            speaker = row.get("values", {}).get("speaker", {})
+            state = speaker.get("state")
+            if state not in {
+                "disabled", "waiting_for_speech", "calibration_required",
+                "no_visible_candidate", "speaker_selected", "ambiguous",
+            }:
+                continue
+            states[state] += 1
+            if state == "speaker_selected":
+                center = speaker.get("center_x")
+                angle = speaker.get("angular_error_degrees")
+                if number(center) and 0 <= center <= 1:
+                    center_errors.append(abs(center - 0.5))
+                if number(angle) and 0 <= angle <= 180:
+                    angular_errors.append(angle)
+        known = sum(states.values())
+        angular_errors.sort()
+        result[phase] = {
+            "total_samples": len(rows),
+            "speaker_state_samples": known,
+            "speaker_state_missing_samples": len(rows) - known,
+            "speaker_state_counts": dict(sorted(states.items())),
+            "selected_fraction": round(states["speaker_selected"] / known, 4) if known else None,
+            "ambiguous_fraction": round(states["ambiguous"] / known, 4) if known else None,
+            "selected_center_samples": len(center_errors),
+            "mean_selected_abs_center_error": (
+                round(sum(center_errors) / len(center_errors), 4) if center_errors else None
+            ),
+            "selected_angular_error_samples": len(angular_errors),
+            "p95_selected_angular_error_degrees": (
+                round(angular_errors[math.ceil(0.95 * len(angular_errors)) - 1], 3)
+                if angular_errors else None
+            ),
+        }
+    return result
+
+
 def make_report(records: list[dict[str, Any]], requested: float, elapsed: float,
                 reason: str, interval: float) -> dict[str, Any]:
     counts = Counter(flag for record in records for flag in record["flags"])
     totals = Counter(record["phase"] for record in records)
     gaps = [b["elapsed_s"] - a["elapsed_s"] for a, b in zip(records, records[1:])]
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "result": "INCOMPLETE" if reason != "duration_complete" or not records else (
             "REVIEW" if counts else "NO_TELEMETRY_ALERTS"
         ),
@@ -286,8 +368,12 @@ def make_report(records: list[dict[str, Any]], requested: float, elapsed: float,
         "observed_flag_sample_counts": dict(sorted(counts.items())),
         "max_sample_gap_seconds": round(max(gaps, default=0), 3),
         "max_sample_span_seconds": max((r["span_s"] for r in records), default=0),
+        "phase_metrics": phase_metrics(records),
         "manual_checks": {item: "NOT_TESTED" for item in MANUAL_CHECKS},
         "limits": [
+            "Phase fractions are sample-weighted, not time-weighted or speaker accuracy.",
+            "Repeated polls are included; freshness alerts must be reviewed separately.",
+            "Switch latency and acoustic echo quality are not measured by this report.",
             "No automatic overall PASS. Human observation is required for every manual check.",
             "Sequential sampled GETs are not atomic, continuous, or hardware feedback.",
             "A connected session is not proof of audible sound, moving video, or low latency.",
@@ -312,7 +398,27 @@ def write_reports(folder: Path, report: dict[str, Any]) -> None:
     flags = report["observed_flag_sample_counts"]
     lines.extend(f"- `{flag}`: {count}" for flag, count in flags.items())
     if not flags:
-        lines.append("No automatic telemetry alerts in the collected samples.")
+        lines.append("No automatic telemetry alerts in the collected samples."
+                     if report["sample_count"] else "No trial samples were collected.")
+    if report.get("preflight_blockers"):
+        lines.extend(["", "## Starting conditions not met", ""])
+        lines.extend(f"- {blocker}" for blocker in report["preflight_blockers"])
+    lines.extend(["", "## Phase telemetry", "",
+                  "Fractions use known speaker-state samples; missing data is excluded and counted.",
+                  "Selected does not mean the correct person was selected. Repeated polls are included.",
+                  "Center error is absolute horizontal displacement in normalized image coordinates.",
+                  "P95 is the nearest-rank statistic over selected samples with valid angular error.", "",
+                  "| Phase | Known / total | Selected fraction | Ambiguous fraction | Mean center error | P95 angle (deg) |",
+                  "|---|---:|---:|---:|---:|---:|"])
+    def display(value):
+        return "N/A" if value is None else str(value)
+    for phase, metric in report["phase_metrics"].items():
+        lines.append(
+            f"| {phase} | {metric['speaker_state_samples']} / {metric['total_samples']} | "
+            f"{display(metric['selected_fraction'])} | {display(metric['ambiguous_fraction'])} | "
+            f"{display(metric['mean_selected_abs_center_error'])} | "
+            f"{display(metric['p95_selected_angular_error_degrees'])} |"
+        )
     lines.extend(["", "## Human checks - NOT TESTED by this program", "",
                   "Mark each PASS, FAIL, or NOT TESTED after observing the actual pilot.", ""])
     lines.extend(f"- [ ] {item}" for item in MANUAL_CHECKS)
@@ -362,6 +468,19 @@ def main(argv: list[str] | None = None) -> int:
     reason = "duration_complete"
     last_phase = ""
     try:
+        values, errors = read_sample(client)
+        blockers = preflight_blockers(values, errors)
+        if blockers:
+            print("\nPILOT NOT STARTED: starting conditions are not met.")
+            for blocker in blockers:
+                print(f"  - {blocker}")
+            report = make_report([], args.duration, 0, "preflight_failed", args.interval)
+            report["preflight_blockers"] = blockers
+            write_reports(folder, report)
+            print(f"INCOMPLETE: {folder / 'report.md'}")
+            return 1
+        print("Starting conditions met. The trial timer starts now.", flush=True)
+        started = time.monotonic()
         with (folder / "telemetry.jsonl").open("x", encoding="utf-8") as stream:
             while time.monotonic() - started < args.duration:
                 sample_start = time.monotonic()
@@ -435,3 +554,4 @@ def main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+

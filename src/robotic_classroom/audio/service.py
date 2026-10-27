@@ -12,10 +12,11 @@ from robotic_classroom.core.config import AudioConfig
 class AudioService:
     """Single-owner VAD/DoA service for the ReSpeaker metadata path."""
 
-    # A real human speaker cannot jump this far around the robot between two
-    # 100 ms metadata samples. Larger jumps are usually reflections/noise or a
-    # temporary beamformer re-lock. Ignore those spikes inside one speech burst.
+    # A large jump can be a new talker, noise, or a beamformer re-lock. Require
+    # consistent fresh evidence before replacing the previous bearing.
     MAX_SPEECH_DOA_JUMP_DEGREES = 55.0
+    RELOCK_CONFIRMATIONS = 3
+    RELOCK_TOLERANCE_DEGREES = 15.0
 
     def __init__(self, backend: AudioBackend, config: AudioConfig) -> None:
         self.backend = backend
@@ -27,6 +28,8 @@ class AudioService:
         self._smoothed_degrees: float | None = None
         self._last_raw_speech_degrees: float | None = None
         self._was_raw_speaking = False
+        self._relock_angles: list[float] = []
+        self._relock_sequences: set[int] = set()
         self._latest = AudioObservation(
             backend=config.mode,
             connected=False,
@@ -56,6 +59,25 @@ class AudioService:
         x = (1.0 - alpha) * math.cos(prev_rad) + alpha * math.cos(measured_rad)
         y = (1.0 - alpha) * math.sin(prev_rad) + alpha * math.sin(measured_rad)
         return math.degrees(math.atan2(y, x)) % 360.0
+
+    def _clear_relock(self) -> None:
+        self._relock_angles.clear()
+        self._relock_sequences.clear()
+
+    def _confirm_new_direction(self, measured: float, sequence: int) -> None:
+        if self._relock_angles and abs(self._signed_delta(
+            measured, self._relock_angles[0]
+        )) > self.RELOCK_TOLERANCE_DEGREES:
+            self._clear_relock()
+        if sequence not in self._relock_sequences:
+            self._relock_sequences.add(sequence)
+            self._relock_angles.append(measured)
+        if len(self._relock_angles) >= self.RELOCK_CONFIRMATIONS:
+            x = sum(math.cos(math.radians(v)) for v in self._relock_angles)
+            y = sum(math.sin(math.radians(v)) for v in self._relock_angles)
+            self._smoothed_degrees = self._normalize_degrees(math.degrees(math.atan2(y, x)))
+            self._last_raw_speech_degrees = measured
+            self._clear_relock()
 
     def start(self) -> None:
         if not self.config.enabled:
@@ -109,7 +131,7 @@ class AudioService:
                 # DoA is only trustworthy while the DSP's VAD says there is
                 # live speech. Do not let silent/hangover/background metadata
                 # drag the active-speaker direction around.
-                if raw.speech_active and doa_raw is not None:
+                if raw.speech_active and doa_raw is not None and math.isfinite(doa_raw):
                     calibrated = self._normalize_degrees(
                         doa_raw + self.config.orientation_offset_degrees
                     )
@@ -117,6 +139,7 @@ class AudioService:
                     # A new speech burst gets a clean lock instead of inheriting
                     # the previous speaker/noise direction.
                     if not self._was_raw_speaking or self._smoothed_degrees is None:
+                        self._clear_relock()
                         self._smoothed_degrees = calibrated
                         self._last_raw_speech_degrees = calibrated
                     else:
@@ -124,21 +147,33 @@ class AudioService:
                             self._signed_delta(calibrated, self._last_raw_speech_degrees)
                         )
                         if jump <= self.MAX_SPEECH_DOA_JUMP_DEGREES:
+                            self._clear_relock()
                             self._smoothed_degrees = self._blend_angle(
                                 self._smoothed_degrees,
                                 calibrated,
                                 self.config.doa_smoothing_alpha,
                             )
                             self._last_raw_speech_degrees = calibrated
-                        # Otherwise keep the previous stable direction for this
-                        # sample and wait for the beamformer to re-lock.
+                        else:
+                            self._confirm_new_direction(calibrated, raw.sequence)
                     doa = self._smoothed_degrees
+                elif raw.speech_active:
+                    # Missing processed speech direction is not evidence that
+                    # the previous bearing still describes the current speaker.
+                    self._smoothed_degrees = None
+                    self._last_raw_speech_degrees = None
+                    self._clear_relock()
+                    doa = None
+
                 elif not speech_active:
                     # Fully silent: clear the previous burst so the next voice
                     # starts from its own measured direction.
                     self._smoothed_degrees = None
                     self._last_raw_speech_degrees = None
                     doa = None
+
+                if not raw.speech_active:
+                    self._clear_relock()
 
                 self._was_raw_speaking = raw.speech_active
 
@@ -154,6 +189,10 @@ class AudioService:
                     orientation_calibrated=self.config.orientation_calibrated,
                     firmware_version=raw.firmware_version,
                     message=raw.message,
+                    doa_source=raw.doa_source,
+                    doa_degrees_primary=raw.doa_degrees_primary,
+                    doa_degrees_processed=raw.doa_degrees_processed,
+                    doa_degrees_auto_selected=raw.doa_degrees_auto_selected,
                 )
             except Exception as exc:  # noqa: BLE001 - worker must surface arbitrary backend faults
                 latest = AudioObservation(

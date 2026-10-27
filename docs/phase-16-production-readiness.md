@@ -169,3 +169,38 @@ The physical production-validation phase is complete only after:
 6. autonomous motion remains separately gated until its own physical validation is complete.
 
 Production readiness is not equivalent to autonomous-motion readiness.
+
+## Runtime safety checks added after the initial readiness implementation
+
+Readiness now rejects mocked hardware/media backends, stale camera/audio observations,
+unavailable or unsafe range data, and emergency-stop/fault/shutdown states. Autonomous-motion
+readiness also requires the production categories, enabled motion and tracking, a running autonomy
+worker, configured battery cutoff, and available calibrated pan/tilt execution. These are runtime
+prerequisites for supervised target tracking, not proof of navigation or physical safety.
+
+The response includes `autonomous_motion_scope` and `unattended_navigation_ready: false`.
+Room navigation and docking are not implemented. Arming and control leases remain separate
+from readiness; this read-only endpoint never authorizes movement.
+
+### Battery cutoff
+
+Configure `safety.minimum_battery_voltage` in YAML or `SAFETY_MINIMUM_BATTERY_VOLTAGE`
+in the deployment environment after determining the safe threshold for the actual pack under
+load. No voltage is guessed: the default is `null`, preserving existing operation while reporting
+a blocker for autonomous-motion readiness. When configured, unavailable, non-finite, non-positive
+or below-threshold readings block movement. A drop during movement triggers the watchdog stop,
+revokes control and latches a fault. Reset requires inspection and a new valid lease.
+
+### Controller write failures
+
+Emergency stop latches its state and revokes the lease/heartbeat before attempting the motor
+write. A raised stop-write error preserves the latch, leaves `motion_active: true` conservatively
+(physical motion is unknown), and makes stop endpoints return HTTP 503. Autonomy is disarmed
+even on stop failure. Failed drive writes latch a fault and attempt STOP. Failed reset writes
+cannot clear the latch. Successful writes indicate submission, not measured motor stopping.
+
+These changes handle raised I/O errors. The actuator lock is still shared with the watchdog:
+a driver that blocks indefinitely can delay stopping. A Python crash or controller fault can also
+prevent STOP. Independent motor inhibition/controller timeout and physical stop-timing tests
+remain necessary before unattended mobility. No live service restart or physical validation is
+performed by the software tests.
