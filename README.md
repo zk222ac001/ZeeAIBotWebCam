@@ -1,331 +1,145 @@
-# ZeeAIBotWebCam
+# 🤖 ZeeAIBotWebCam
 
-**Affordable AI-Powered Robotic Video Conferencing System Using Raspberry Pi and Python for Hybrid Active Learning Classrooms**
+### AI-powered telepresence for hybrid learning
 
-ZeeAIBotWebCam is a production-oriented research and teaching platform built around **Hiwonder TurboPi + Raspberry Pi + Sony IMX500 AI Camera + ReSpeaker XVF3800 + Python + Edge AI + WebRTC**.
+**A Raspberry Pi research and teaching platform for camera framing, active-speaker tracking and supervised robotic video conferencing.**
 
-The software includes camera and audio services, anonymous person tracking, bounded pan/tilt execution, active-speaker fusion, WebRTC telepresence and supervised chassis autonomy. Physical validation and staged execution gates remain essential.
+[![CI](https://github.com/zk222ac001/ZeeAIBotWebCam/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/zk222ac001/ZeeAIBotWebCam/actions/workflows/ci.yml)
+[![Python](https://img.shields.io/badge/Python-3.11–3.13-3776AB?logo=python&logoColor=white)](pyproject.toml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-teal.svg)](LICENSE)
 
-## Current development status
+[**Get started**](#quick-start--no-robot-required) · [**Documentation**](docs/README.md) · [**Deploy on Pi**](docs/studio-deployment.md) · [**Privacy**](docs/privacy.md) · [**Security**](SECURITY.md)
 
-The responsive **ZeeAI Studio** interface now starts at `/`: a room overview,
-live WebRTC sessions, guided camera framing, deliberate robot controls and live
-release readiness. It uses local assets included in the Python package and
-needs no frontend build service. See [Studio deployment](docs/studio-deployment.md)
-for activation, separate access tokens and a private Pi-hosted deployment path.
-The professional interface remains a supervised preview until the physical and
-security acceptance checks are complete.
+---
 
-The implementation now includes WebRTC audio/video, operator controls, calibrated pan/tilt execution, supervised chassis autonomy, deployment and readiness tooling. Older phase documents below describe historical milestones, not current configuration.
+## The project
 
-The default `config.yaml` uses mocked hardware with chassis motion disabled. `config.pi.yaml` enables real hardware, pan/tilt execution and manual chassis motion; autonomous chassis execution remains **plan-only**, unarmed at startup, rotation-only, with forward/search disabled and pilot validation incomplete.
+ZeeAIBotWebCam explores affordable robotic presence in hybrid active-learning classrooms. It combines **Hiwonder TurboPi**, **Raspberry Pi**, **Sony IMX500 AI Camera**, **ReSpeaker XVF3800**, **Python** and **WebRTC**.
 
-The Pi camera now starts in **center and hold** mode for setup. Open
-`/api/pan-tilt/ui` to center and hold the calibrated neutral pose or explicitly
-resume automatic camera tracking. Servo bounds and safety gates remain in force;
-the UI reports submitted commands rather than measured physical position.
+The goal is to help remote participants see, hear and follow classroom activity through a locally operated robot. Person detection uses temporary tracking labels; it does not identify students.
 
-See [the classroom autonomy roadmap](docs/classroom-autonomy-roadmap.md) for the current implementation, software verification, physical acceptance work and staged path to affordable classroom autonomy.
+> [!IMPORTANT]
+> **Research prototype / supervised preview.** Software features are implemented, but physical acceptance, acoustic echo validation and the full classroom pilot remain essential. Autonomous room navigation and docking are not implemented. Passing CI is not proof that a robot is safe to operate.
 
-## Safety baseline
+## What is included?
 
-> **AI, web, camera, tracking, audio, fusion, and conferencing modules never command motors directly.**
->
-> All future physical movement must pass through the central Safety Supervisor and verified hardware adapters.
+| Capability | Implementation and limits |
+| --- | --- |
+| 🖥️ ZeeAI Studio | Responsive operator overview, live session, camera controls and readiness pages; local frontend assets |
+| 📷 Camera and tracking | Shared IMX500 camera service, person detections and temporary tracking labels |
+| 🎙️ Active-speaker framing | Audio direction and visual detections combined with calibration gates |
+| ↔️ Pan/tilt | Bounded execution; Pi starts in center-and-hold until following is explicitly resumed |
+| 🌐 WebRTC | Browser video/audio with separate conference access settings |
+| 🛞 Robot control | Leased manual control, heartbeat/watchdog and central safety supervision |
+| 🧭 Supervised autonomy | Pi profile remains unarmed at startup and plan-only; rotation-only policy, forward/search disabled |
+| 🧪 Development | Mock backends, pytest tests, Ruff checks and staged validation scripts |
 
-The committed configuration remains safe:
+## Quick start — no robot required
 
-```yaml
-hardware:
-  mode: mock
-  motor_mapping_validated: false
-  pan_tilt:
-    enabled: false
-
-camera:
-  mode: mock
-
-pan_tilt_control:
-  mode: plan_only
-
-audio:
-  mode: mock
-  orientation_calibrated: false
-
-active_speaker:
-  geometry_calibrated: false
-
-conference:
-  mode: mock
-  publish_video: true
-  publish_audio: false
-
-safety:
-  motion_enabled: false
-```
-
-## Current architecture
-
-```mermaid
-flowchart LR
-    CAM[Sony IMX500] --> CSVC[CameraService]
-    CSVC --> DET[Anonymous person detections]
-    CSVC --> JPEG[Shared JPEG]
-    DET --> TRACK[PersonTracker]
-    TRACK --> PT[Pan/Tilt Planner]
-
-    MIC[ReSpeaker XVF3800] --> ASVC[AudioService]
-    ASVC --> VAD[VAD]
-    ASVC --> DOA[Smoothed DoA]
-
-    DET --> FUSION[ActiveSpeakerFusion]
-    VAD --> FUSION
-    DOA --> FUSION
-
-    JPEG --> WEBRTC[ConferenceService / aiortc]
-    BROWSER[Browser] <--> WEBRTC
-
-    FUSION -. recommendation only .-> SAFE[Safety Supervisor]
-    PT -. plan only .-> SAFE
-    WEBRTC -. no movement path .-> SAFE
-    SAFE --> ADAPTER[TurboPi Adapter]
-    ADAPTER --> HW[Servos / Motors]
-```
-
-## Repository layout
-
-```text
-ZeeAIBotWebCam/
-├── config.yaml
-├── pyproject.toml
-├── src/robotic_classroom/
-│   ├── audio/
-│   ├── camera/
-│   ├── conference/
-│   ├── control/
-│   ├── core/
-│   ├── fusion/
-│   ├── hardware/
-│   ├── pan_tilt/
-│   ├── safety/
-│   ├── tracking/
-│   └── web/
-├── tests/
-├── scripts/
-├── vendor/
-└── docs/
-```
-
-## Phase documentation
-
-- [`docs/phase-00-engineering-analysis.md`](docs/phase-00-engineering-analysis.md)
-- [`docs/phase-01-development-environment.md`](docs/phase-01-development-environment.md)
-- [`docs/phase-02-hardware-validation.md`](docs/phase-02-hardware-validation.md)
-- [`docs/phase-03-hardware-adapter-safety.md`](docs/phase-03-hardware-adapter-safety.md)
-- [`docs/phase-04-imx500-camera-service.md`](docs/phase-04-imx500-camera-service.md)
-- [`docs/phase-05-person-tracking.md`](docs/phase-05-person-tracking.md)
-- [`docs/phase-06-pan-tilt-planning.md`](docs/phase-06-pan-tilt-planning.md)
-- [`docs/phase-07-respeaker-audio-service.md`](docs/phase-07-respeaker-audio-service.md)
-- [`docs/phase-08-active-speaker-fusion.md`](docs/phase-08-active-speaker-fusion.md)
-- [`docs/phase-09-webrtc-telepresence.md`](docs/phase-09-webrtc-telepresence.md)
-- [`docs/hardware-api-inventory.md`](docs/hardware-api-inventory.md)
-- [`docs/architecture.md`](docs/architecture.md)
-- [`docs/safety.md`](docs/safety.md)
-
-## Pull latest code on Raspberry Pi
+Use **Python 3.11–3.13**. These commands are for Bash on Linux/macOS; on Windows, activate the virtual environment using `.venv\Scripts\Activate.ps1` in PowerShell.
 
 ```bash
-cd ~/ZeeAIBotWebCam
-git pull
+git clone https://github.com/zk222ac001/ZeeAIBotWebCam.git
+cd ZeeAIBotWebCam
+python3 -m venv .venv
 source .venv/bin/activate
-pip install -e ".[dev]"
+python -m pip install -e ".[dev]"
+```
+
+In a fresh terminal without deployment environment overrides, start the default mock profile:
+
+```bash
+python -m robotic_classroom.main
+```
+
+Open **http://127.0.0.1:8000/**. Stop with **Ctrl+C**.
+
+The default `config.yaml` binds to loopback, uses mock hardware/camera/audio/conferencing and disables chassis motion. Mock conference signaling tests API/session behavior; it does **not** provide a real browser media connection. Environment variables can override configuration, so do not reuse a Pi service environment for this demo.
+
+Verify the development setup:
+
+```bash
 ruff check src tests
 pytest -v
 ```
 
-## Run everything in mock mode
+## Choose your configuration deliberately
 
-```bash
-export HARDWARE_MODE=mock
-export CAMERA_MODE=mock
-export AUDIO_MODE=mock
-export CONFERENCE_MODE=mock
-export TRACKING_ENABLED=true
-export PAN_TILT_CONTROL_ENABLED=true
-export ACTIVE_SPEAKER_ENABLED=true
-export ACTIVE_SPEAKER_GEOMETRY_CALIBRATED=false
-python -m robotic_classroom.main
+| Setting | `config.yaml` | `config.pi.yaml` |
+| --- | --- | --- |
+| Hardware / camera / audio | Mock | Real / IMX500 / XVF3800 |
+| Web binding | `127.0.0.1:8000` | `0.0.0.0:8000` |
+| Manual chassis motion | Disabled | Enabled, subject to safety gates |
+| Pan/tilt | Plan-only; hardware disabled | Execute; center hold at startup |
+| Autonomy | Disabled / plan-only | Enabled / plan-only; pilot incomplete |
+| Conference and control authentication | Disabled in YAML | Disabled in YAML; configure local overrides |
+| Recording / face recognition | Disabled | Disabled |
+
+> [!WARNING]
+> The Pi profile is a hardware configuration, **not a secure deployment preset**. Enable separate conference and control authentication, configure HTTPS/private network access and revalidate calibration on your own robot before use. Never copy validation flags as evidence that different hardware has passed testing.
+
+Follow [Studio deployment](docs/studio-deployment.md), [hardware validation](docs/phase-02-hardware-validation.md) and [systemd deployment](docs/phase-15-systemd-deployment.md). Install optional WebRTC dependencies with `python -m pip install -e ".[dev,webrtc]"` when that stage requires them.
+
+## How the system fits together
+
+```mermaid
+flowchart TD
+    Camera["IMX500 camera"] --> Tracking["Person tracking"]
+    Audio["ReSpeaker audio direction"] --> Fusion["Active-speaker fusion"]
+    Tracking --> Fusion
+    Fusion --> Planning["Framing and autonomy planning"]
+    Planning --> Safety["Safety Supervisor"]
+    Operator["Operator control"] --> Safety
+    Safety --> Hardware["Hardware adapters: servos and motors"]
+    Camera --> Conference["WebRTC conference service"]
+    Conference <--> Browser["Remote browser"]
 ```
 
-Useful endpoints:
+This is a conceptual overview. Mode, calibration, access and safety gates determine whether a plan can execute. See [architecture](docs/architecture.md) and [safety](docs/safety.md).
 
-```text
-GET    /health
-GET    /ready
-GET    /api/sensors
-GET    /api/camera/status
-GET    /api/camera/detections
-GET    /api/camera/frame.jpg
-GET    /api/tracking/status
-GET    /api/pan-tilt/plan
-GET    /api/audio/status
-GET    /api/active-speaker/status
-GET    /api/conference/status
-POST   /api/conference/offer
-DELETE /api/conference/sessions/{session_id}
-GET    /conference
-GET    /api/safety
-```
+## Explore ZeeAI Studio
 
-Manual chassis control is available through `/api/control/motion` and `/api/control/ui`, subject to the configured safety gates. A normal STOP also disarms autonomy; emergency stop additionally inhibits new pan/tilt commands.
+| Page | Purpose |
+| --- | --- |
+| `/` | Room overview and service state |
+| `/conference` | Explicit WebRTC connection and browser-microphone controls |
+| `/api/pan-tilt/ui` | Center/hold and deliberate camera-following controls |
+| `/api/control/ui` | Leased manual motion, STOP and emergency stop |
+| `/readiness` | Live blockers and readiness report |
 
-## Test the real IMX500 while robot movement stays mocked
+A successful servo command is not measured physical position. A loaded webpage does not prove WebRTC connectivity. Use `/api/readiness` and the supervised validation guides; `/ready` alone is not a production acceptance check.
 
-```bash
-export HARDWARE_MODE=mock
-export CAMERA_MODE=imx500
-export AUDIO_MODE=mock
-python -m robotic_classroom.main
-```
+## Documentation paths
 
-Open:
+| Your goal | Start here |
+| --- | --- |
+| Understand the project | [Documentation index](docs/README.md) |
+| Set up a development environment | [Phase 1](docs/phase-01-development-environment.md) |
+| Validate real hardware | [Phase 2](docs/phase-02-hardware-validation.md) |
+| Deploy and secure Studio | [Studio deployment](docs/studio-deployment.md) |
+| Calibrate speaker framing | [Pan-aware calibration](docs/pan-aware-speaker-calibration.md) |
+| Run a stationary classroom trial | [Stationary validation](docs/stationary-classroom-validation.md) |
+| Assess production readiness | [Phase 16](docs/phase-16-production-readiness.md) |
+| Understand future autonomy | [Classroom roadmap](docs/classroom-autonomy-roadmap.md) |
+| Review privacy and GitHub protection | [Privacy](docs/privacy.md) · [Repository review](docs/repository-security-review.md) |
 
-```text
-http://localhost:8000/api/camera/status
-http://localhost:8000/api/camera/detections
-http://localhost:8000/api/tracking/status
-http://localhost:8000/api/pan-tilt/plan
-http://localhost:8000/api/camera/frame.jpg
-```
+## Privacy and responsible operation
 
-## Test the ReSpeaker XVF3800
+Recording and face recognition are disabled in the committed profiles. Live video/audio can still identify people and is transmitted to connected conference participants. Temporary tracking labels do not anonymize the media itself.
 
-```bash
-lsusb
-arecord -l
-python scripts/phase7_audio_check.py
-```
+Keep credentials and classroom recordings out of Git. Review logs, screenshots and reports before sharing them. Use the [privacy guide](docs/privacy.md) for the data flow and known limitations, and [SECURITY.md](SECURITY.md) for vulnerability reporting.
 
-Expected USB VID/PID:
+## Contribute
 
-```text
-2886:001a
-```
+Read [CONTRIBUTING.md](CONTRIBUTING.md). Develop against mock backends, submit focused pull requests and document how changes were checked. Never run automated motion tests against a live classroom robot.
 
-Then:
+## Built with
 
-```bash
-export HARDWARE_MODE=mock
-export CAMERA_MODE=mock
-export AUDIO_MODE=xvf3800_usb
-python -m robotic_classroom.main
-```
+- [Hiwonder TurboPi](https://github.com/Hiwonder/TurboPi)
+- [Raspberry Pi Picamera2 / IMX500](https://github.com/raspberrypi/picamera2)
+- [Seeed Studio ReSpeaker XVF3800](https://wiki.seeedstudio.com/respeaker_xvf3800_python_sdk/)
+- [aiortc](https://github.com/aiortc/aiortc)
 
-Open:
+## License
 
-```text
-http://localhost:8000/api/audio/status
-```
-
-## Phase 8 — active-speaker fusion
-
-The fusion layer will not geometrically use DoA until both calibration gates are true:
-
-```yaml
-audio:
-  orientation_calibrated: true
-
-active_speaker:
-  geometry_calibrated: true
-```
-
-Until then the active-speaker API safely reports a calibration-required state and always returns:
-
-```json
-"movement_requested": false
-```
-
-## Phase 9 — WebRTC telepresence
-
-Phase 9 adds mock and real conference backends.
-
-### Mock signaling/API test
-
-```bash
-export CONFERENCE_MODE=mock
-python -m robotic_classroom.main
-```
-
-Open:
-
-```text
-http://localhost:8000/api/conference/status
-http://localhost:8000/conference
-```
-
-Mock SDP validates API/session lifecycle but is not a real browser media connection.
-
-### Real Raspberry Pi LAN video test
-
-Install optional WebRTC dependencies:
-
-```bash
-pip install -e ".[dev,webrtc]"
-```
-
-Then run the real IMX500 with robot movement still mocked:
-
-```bash
-export HARDWARE_MODE=mock
-export CAMERA_MODE=imx500
-export AUDIO_MODE=mock
-export CONFERENCE_MODE=aiortc
-export CONFERENCE_PUBLISH_AUDIO=false
-python -m robotic_classroom.main
-```
-
-Open through VS Code port forwarding or a trusted LAN:
-
-```text
-http://localhost:8000/conference
-```
-
-Click **Connect**. The real WebRTC backend publishes the existing `CameraService` stream; it does not open a second Picamera2 instance.
-
-Raw Raspberry Pi microphone publishing remains disabled until the actual ReSpeaker ALSA capture device is verified. After that it can be enabled with `CONFERENCE_PUBLISH_AUDIO=true` and the measured ALSA input identifier.
-
-## Privacy baseline
-
-The design defaults to:
-
-- no face recognition;
-- no voice recognition;
-- no biometric identity database;
-- no recording;
-- no cloud upload of raw classroom video by default;
-- anonymous on-device person detection;
-- temporary labels such as `Person-01` and `Speaker-01` only;
-- physical movement disabled by default;
-- live conference media only when a WebRTC session is explicitly established.
-
-## Upstream references
-
-Hiwonder TurboPi:
-
-https://github.com/Hiwonder/TurboPi
-
-Raspberry Pi Picamera2 / IMX500:
-
-https://github.com/raspberrypi/picamera2
-
-Seeed Studio ReSpeaker XVF3800 Python control:
-
-https://wiki.seeedstudio.com/respeaker_xvf3800_python_sdk/
-
-aiortc:
-
-https://github.com/aiortc/aiortc
-
-## Next development milestone
-
-Complete and validate the [autonomy reliability work](docs/classroom-autonomy-roadmap.md), then improve stationary speaker framing and calibrated rotation-only recentering. Forward following and room navigation remain separate future stages.
+[MIT](LICENSE). Third-party hardware SDKs and dependencies retain their own licenses.
