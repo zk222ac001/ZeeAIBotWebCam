@@ -2,20 +2,20 @@
 from __future__ import annotations
 
 import json
-import math
 import statistics
 import time
 import urllib.error
-import urllib.request
+from itertools import pairwise
 
-BASE_URL = "http://127.0.0.1:8000"
+from robotic_classroom.core.status_client import read_status
+
+BASE_URL = "https://localhost:8000"
 SAMPLE_INTERVAL = 0.2
 DURATION_SECONDS = 20.0
 
 
 def get_json(path: str) -> dict[str, object]:
-    with urllib.request.urlopen(f"{BASE_URL}{path}", timeout=2.0) as response:
-        return json.loads(response.read().decode("utf-8"))
+    return read_status(path, timeout=2.0)
 
 
 def main() -> int:
@@ -66,8 +66,8 @@ def main() -> int:
             }
         )
         print(
-            f"active={active.get('state'):>18} target={str(tracking.get('target_id')):>10} "
-            f"pan={str(pan.get('planned_pulse')):>4} tilt={str(tilt.get('planned_pulse')):>4} "
+            f"active={active.get('state'):>18} target={tracking.get('target_id')!s:>10} "
+            f"pan={pan.get('planned_pulse')!s:>4} tilt={tilt.get('planned_pulse')!s:>4} "
             f"dead_zone={tracking.get('in_dead_zone')}"
         )
         time.sleep(SAMPLE_INTERVAL)
@@ -79,8 +79,8 @@ def main() -> int:
 
     pan_values = [int(s["pan"]) for s in usable]
     tilt_values = [int(s["tilt"]) for s in usable]
-    pan_steps = [abs(b - a) for a, b in zip(pan_values, pan_values[1:])]
-    tilt_steps = [abs(b - a) for a, b in zip(tilt_values, tilt_values[1:])]
+    pan_steps = [abs(b - a) for a, b in pairwise(pan_values)]
+    tilt_steps = [abs(b - a) for a, b in pairwise(tilt_values)]
 
     selected = sum(1 for s in samples if s["active"] == "speaker_selected")
     speaker_target = sum(1 for s in samples if s["target"] == "Speaker-01")

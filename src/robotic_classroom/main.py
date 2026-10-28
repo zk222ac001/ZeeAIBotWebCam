@@ -14,6 +14,9 @@ def run() -> None:
             "Both UVICORN_SSL_CERTFILE and UVICORN_SSL_KEYFILE are required for HTTPS"
         )
 
+    if settings.application.environment == "production" and not certfile:
+        raise RuntimeError("Production startup requires HTTPS certificate and key files")
+
     uvicorn.run(
         "robotic_classroom.web.app:app",
         host=settings.web.host,

@@ -54,6 +54,11 @@ sudo systemctl restart zee-robot.service
 systemctl status zee-robot.service --no-pager -l
 ```
 
+The managed service requires both authentication gates and separate credentials
+in `/etc/zee-robot/zee-robot.env`; run the access setup helper below before
+restarting if those settings were previously supplied only by a local `.env`.
+It refuses to launch with missing managed credentials.
+
 The root-managed service requires administrator authentication. Enter the
 password only in the terminal. Wait for restart to complete before refreshing
 the browser. Through the existing VS Code port forward, open:
@@ -83,6 +88,14 @@ need to be pasted into chat. The helper defaults to a dry run without `--apply`;
 `--rotate` explicitly replaces both existing tokens. Existing multiline token
 settings require manual review rather than an automatic rewrite.
 
+For manual launches with `scripts/run_pi.sh` or `scripts/run_pi_https.sh`,
+local settings can instead be stored in the checkout's Git-ignored `.env`.
+The launcher requires this file to be owned by the launching user with mode
+0600 and exports its settings. Use separate conference and control tokens,
+then enter them with the Studio shield button after restarting. This file
+is ignored under systemd, where the root-managed environment remains authoritative. Keep the application
+environment in preview until acoustic and classroom acceptance are complete.
+
 Alternatively, configure separate long random secrets manually in the same
 root-only environment file:
 
@@ -99,7 +112,7 @@ the shield button in Studio to enter the relevant token. Tokens remain in page
 memory by default. The optional remember setting uses this browser tab's
 session storage, and Clear tokens removes it.
 
-The conference gate also protects camera frames and camera/audio/tracking
+The conference gate also protects detailed `/health`, camera frames and camera/audio/tracking
 observations. Camera mode changes and control-lease acquisition use the separate
 control token. Normal motion, heartbeat and reset additionally require a valid
 control lease. Emergency stop remains available without obtaining a lease.
@@ -154,7 +167,29 @@ unattended mobility. These remain separate from professional interface design.
 
 ## Verification
 
-Run `ruff check src tests` and `pytest`. Browser verification should use a
+Run `ruff check src tests scripts` and `pytest`. Browser verification should use a
 separate mock process on a different loopback port. Never point automated
 movement/control tests at the live Pi service. Source files live under
 `src/robotic_classroom/web/templates` and `src/robotic_classroom/web/static`.
+
+## When the live-session connection fails
+
+An accepted `POST /api/conference/offer` confirms signaling and authentication;
+it does not prove the separate WebRTC media path. If the video stays blank and
+connection state fails:
+
+1. Leave the failed session, refresh the page with Ctrl+Shift+R, and reconnect.
+2. Try Chrome or Edge if Firefox fails in receive-only mode. The upstream aiortc
+   webcam example documents a Firefox mDNS timing limitation:
+   https://github.com/aiortc/aiortc/blob/main/examples/webcam/README.rst.
+3. Verify both devices use the approved private network and that peer-to-peer UDP
+   media is allowed. A reachable HTTPS page alone is insufficient. Restricted
+   classroom networks may require institution-provided STUN/TURN configuration.
+4. Do not disable authentication or browser security to diagnose the media path.
+
+Failed or timed-out browser attempts now close their peer, stop any local
+microphone tracks and release their server session before allowing retry.
+The backend also prunes unconnected sessions after 30 seconds by default
+(`conference.connection_timeout_seconds`), preserving connected sessions. Backend
+changes need a supervised service restart; the static page change needs a refresh.
+These checks do not certify acoustic or physical classroom acceptance.

@@ -4,15 +4,15 @@ from __future__ import annotations
 import json
 import time
 import urllib.error
-import urllib.request
 
-BASE_URL = "http://127.0.0.1:8000"
+from robotic_classroom.core.status_client import read_status
+
+BASE_URL = "https://localhost:8000"
 INTERVAL_SECONDS = 0.5
 
 
 def get_json(path: str) -> dict[str, object]:
-    with urllib.request.urlopen(f"{BASE_URL}{path}", timeout=2.0) as response:
-        return json.loads(response.read().decode("utf-8"))
+    return read_status(path, timeout=2.0)
 
 
 def speaker_drives_tracking(active: dict, tracking: dict, execution: dict) -> bool:

@@ -30,6 +30,8 @@ def ready_system(monkeypatch):
     cfg.conference.echo_reference_enabled = True
     cfg.conference.echo_reference_validated = True
     cfg.conference.auth_required = True
+    cfg.conference.access_token = "synthetic-media-secret-123456"
+    cfg.control_access.access_token = "synthetic-control-secret-654321"
     cfg.control_access.auth_required = True
     cfg.safety.motion_enabled = True
     cfg.safety.minimum_battery_voltage = 6.5  # Synthetic test threshold.
@@ -120,3 +122,20 @@ async def test_readiness_rejects_runtime_and_configuration_failures(ready_system
     result = await readiness()
     assert not result["autonomous_motion_ready"]
     assert result["categories"]["autonomous_motion"]["blockers"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure", ["missing_media", "missing_control", "shared"])
+async def test_readiness_requires_present_separate_credentials(ready_system, failure):
+    cfg = ready_system.cfg
+    if failure == "missing_media":
+        cfg.conference.access_token = None
+    elif failure == "missing_control":
+        cfg.control_access.access_token = None
+    else:
+        cfg.control_access.access_token = cfg.conference.access_token
+    result = await readiness()
+    assert not result["production_ready"]
+    assert not result["categories"]["privacy_security"]["ready"]
+    assert "synthetic-media-secret" not in str(result)
+    assert "synthetic-control-secret" not in str(result)

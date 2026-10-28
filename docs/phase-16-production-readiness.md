@@ -204,3 +204,84 @@ a driver that blocks indefinitely can delay stopping. A Python crash or controll
 prevent STOP. Independent motor inhibition/controller timeout and physical stop-timing tests
 remain necessary before unattended mobility. No live service restart or physical validation is
 performed by the software tests.
+
+## Preparing the remaining acceptance checks
+
+The read-only AEC monitor supports the protected conference endpoint with trusted
+HTTPS. Provide `CONFERENCE_ACCESS_TOKEN` in the local environment (never as a
+command-line argument). It uses `.local-certs/zee-local-ca.crt` by default; use
+`--ca` for a different CA and `--url` for a certificate-covered HTTPS endpoint.
+With one call connected and browser audio being sent to the Pi, run:
+
+```bash
+.venv/bin/python scripts/aec_production_monitor.py --seconds 20
+```
+
+Exit codes are 0 for synchronized software counters, 1 for failed path checks,
+and 2 when the protected endpoint cannot be verified or read. This never marks
+acoustic acceptance complete. Follow it with remote-only speech and double-talk
+listening checks, and record the observed result.
+
+For the supervised pilot, use the same environment token:
+
+```bash
+.venv/bin/python scripts/classroom_pilot_check.py --duration 600 --interval 0.5 \
+  --token-env CONFERENCE_ACCESS_TOKEN
+```
+
+Arrange two local participants and one remote participant first. An operator must
+inspect the stationary robot before deliberately clearing an emergency-stop latch
+using the existing control UI. Keep autonomy unarmed and plan-only. A failed
+preflight or a short software check does not complete the pilot. Review all eight
+human checks in [stationary-classroom-validation.md](stationary-classroom-validation.md).
+Only record validated acceptance settings after those observations pass, then
+perform the documented production promotion and recheck `/api/readiness`.
+
+## Software preparation checked on 2026-10-28
+
+The current checkout includes these production-preparation fixes:
+
+- systemd ignores a manual-launch `.env` and refuses startup without both
+  authentication gates and separate credentials in its managed environment;
+- readiness rejects missing or shared conference/control credentials;
+- operator motion uses verified HTTPS, an environment-supplied control token,
+  and nonzero failure on an unconfirmed STOP;
+- read-only tracking diagnostics use verified HTTPS and the conference token;
+- exclusive audio testing refuses an occupied application port, including HTTPS;
+- watchdog diagnostics attempt every cleanup step even when STOP raises;
+- the AEC monitor retains transient stream errors and counter resets;
+- `final_system_validation.py` delegates to the authoritative readiness reporter;
+- CI lints source, tests and scripts, runs mock tests, and builds a wheel.
+
+For older read-only tracking diagnostics, `ZEE_BASE_URL` and `ZEE_CA` can override
+`https://localhost:8000` and `.local-certs/zee-local-ca.crt`. Run them from the
+checkout with `CONFERENCE_ACCESS_TOKEN` in the environment. The motion client
+uses `CONTROL_ACCESS_TOKEN`, `--base-url` and `--ca`. Do not run automated motion
+checks against the live Pi.
+
+These source changes are not evidence that the running service has loaded them.
+The live service needs an operator-controlled restart after local inspection;
+restarting must not be used to bypass an emergency-stop inspection. Applying
+systemd changes requires administrator access. Retain the current preview
+application environment until acceptance is complete.
+
+The remaining release sequence is:
+
+1. Inspect the stationary robot and resolve the emergency-stop condition through
+   the existing operator controls. Keep chassis autonomy unarmed and plan-only.
+2. Connect a real call and verify moving video, microphone publishing and speaker
+   playback in both directions. Validate camera framing and physical travel.
+3. Run the AEC monitor with remote audio playing; separately listen for echo and
+   check intelligibility during remote-only speech and overlapping speech.
+4. Run the complete 600-second pilot and review all eight human observations.
+5. Only after successful review, record `CONFERENCE_ECHO_REFERENCE_VALIDATED=true`
+   in the managed environment and `autonomy.pilot_validated: true` in the deployed
+   YAML configuration. Keep `autonomy.mode: plan_only` and `forward_enabled: false`.
+   These settings represent observed acceptance; they must not be inferred from
+   unit tests or counters.
+6. Promote `APPLICATION_ENVIRONMENT=production`, restart under operator supervision,
+   and require `production_readiness.py` to return exit code 0 with all six
+   production categories ready. Inspect post-restart service logs and repeat a call.
+
+Unattended movement, navigation and docking remain outside this release. No
+production promotion or physical acceptance was performed during software work.

@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 import json
-import math
 import time
 import urllib.error
-import urllib.request
 
-BASE = "http://127.0.0.1:8000"
+from robotic_classroom.core.status_client import read_status
+
+BASE = "https://localhost:8000"
 INTERVAL = 0.5
 REQUEST_TIMEOUT = 2.0
 REQUEST_RETRIES = 5
@@ -20,14 +20,11 @@ MAX_MATCH_ERROR_DEGREES = 18.0
 
 
 def get_json(path: str) -> dict:
-    url = BASE + path
     last_error: Exception | None = None
 
     for attempt in range(1, REQUEST_RETRIES + 1):
         try:
-            with urllib.request.urlopen(url, timeout=REQUEST_TIMEOUT) as response:
-                payload = response.read().decode("utf-8")
-                return json.loads(payload)
+            return read_status(path, timeout=REQUEST_TIMEOUT)
         except (
             urllib.error.HTTPError,
             urllib.error.URLError,

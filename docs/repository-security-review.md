@@ -47,3 +47,11 @@ The review did not establish the current state of secret scanning, push protecti
 Enable [private vulnerability reporting](https://docs.github.com/en/code-security/how-tos/report-and-fix-vulnerabilities/configure-vulnerability-reporting/configure-for-a-repository) so the route described in [SECURITY.md](../SECURITY.md) is available.
 
 For the running robot, confirm local token overrides and restricted HTTPS access using [Studio deployment](studio-deployment.md). Prioritize reducing unauthenticated health data or restricting those routes at the network/gateway layer. This documentation update does not alter runtime access behavior.
+
+## Subsequent source hardening, 2026-10-28
+
+The current checkout protects detailed `/health` with the conference access gate,
+adds production authentication/HTTPS startup requirements and release/preflight
+tooling. The dated GitHub settings findings above were not rechecked or changed.
+Public operational status and emergency-stop behavior still require restricted
+network access. See [production release](production-release.md).

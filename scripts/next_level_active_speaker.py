@@ -4,14 +4,14 @@ import json
 import subprocess
 import sys
 import urllib.error
-import urllib.request
 
-BASE = "http://127.0.0.1:8000"
+from robotic_classroom.core.status_client import read_status
+
+BASE = "https://localhost:8000"
 
 
 def get_json(path: str) -> dict:
-    with urllib.request.urlopen(BASE + path, timeout=3) as response:
-        return json.loads(response.read().decode("utf-8"))
+    return read_status(path, timeout=3.0)
 
 
 def main() -> None:

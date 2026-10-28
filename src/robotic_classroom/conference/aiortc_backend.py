@@ -181,7 +181,12 @@ class AiortcConferenceBackend:
         # Include negotiations in the capacity limit and serialize capture setup.
         async with self._offer_lock:
             await self._cleanup_stale()
-            return await self._create_answer(offer)
+            try:
+                return await asyncio.wait_for(
+                    self._create_answer(offer), timeout=self.config.connection_timeout_seconds,
+                )
+            except TimeoutError:
+                raise RuntimeError("WebRTC negotiation timed out; reconnect and check network access") from None
 
     async def _create_answer(self, offer: SessionDescription) -> ConferenceAnswer:
         if not self._running:
@@ -302,6 +307,8 @@ class AiortcConferenceBackend:
                 session_id
                 for session_id, runtime in self._sessions.items()
                 if now - runtime.last_activity_monotonic > timeout
+                or (runtime.peer_connection.connectionState != "connected"
+                    and now - runtime.created_monotonic > self.config.connection_timeout_seconds)
             ]
         for session_id in stale:
             await self.close_session(session_id)

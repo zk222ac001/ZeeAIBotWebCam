@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import secrets
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -190,6 +191,7 @@ app.mount("/assets", StaticFiles(directory=Path(__file__).parent / "static"), na
 async def response_security_headers(request: Request, call_next):
     response = await call_next(request)
     response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
     response.headers["Referrer-Policy"] = "same-origin"
     response.headers["Permissions-Policy"] = "camera=(), microphone=(self)"
     if request.url.path.startswith("/api/") or request.url.path in {
@@ -200,12 +202,13 @@ async def response_security_headers(request: Request, call_next):
             response.headers["Content-Security-Policy"] = (
                 "default-src 'self'; script-src 'self'; style-src 'self'; "
                 "img-src 'self' blob: data:; media-src 'self' blob:; "
-                "connect-src 'self'; object-src 'none'; base-uri 'self'"
+                "connect-src 'self'; object-src 'none'; base-uri 'self'; "
+                "frame-ancestors 'none'; form-action 'self'"
             )
     return response
 
 
-@app.get("/health")
+@app.get("/health", dependencies=[Depends(require_media_access)])
 def health() -> dict[str, object]:
     hardware_status = app.state.hardware.status()
     camera_status = app.state.camera.status()
@@ -544,6 +547,15 @@ async def readiness() -> dict[str, object]:
         privacy_security_blockers.append("conference authentication disabled")
     if not cfg.control_access.auth_required:
         privacy_security_blockers.append("control authentication disabled")
+    conference_token = cfg.conference.access_token
+    control_token = cfg.control_access.access_token
+    if cfg.conference.auth_required and not conference_token:
+        privacy_security_blockers.append("conference authentication credential missing")
+    if cfg.control_access.auth_required and not control_token:
+        privacy_security_blockers.append("control authentication credential missing")
+    if (conference_token and control_token
+            and secrets.compare_digest(conference_token.encode(), control_token.encode())):
+        privacy_security_blockers.append("conference and control credentials must differ")
     if cfg.application.environment != "production":
         privacy_security_blockers.append("application environment is not production")
     categories["privacy_security"] = {

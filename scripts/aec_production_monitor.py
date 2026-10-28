@@ -14,14 +14,19 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
+import os
 import ssl
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from dataclasses import dataclass
+from pathlib import Path
 
-
-DEFAULT_URL = "https://127.0.0.1:8000/api/conference/audio-pipeline"
+ROOT = Path(__file__).resolve().parents[1]
+DEFAULT_CA = ROOT / ".local-certs/zee-local-ca.crt"
+DEFAULT_URL = "https://localhost:8000/api/conference/audio-pipeline"
 
 
 @dataclass(frozen=True, slots=True)
@@ -37,7 +42,7 @@ class Snapshot:
     echo_management_mode: str
 
     @classmethod
-    def from_payload(cls, payload: dict[str, object]) -> "Snapshot":
+    def from_payload(cls, payload: dict[str, object]) -> Snapshot:
         return cls(
             speaker_running=bool(payload.get("speaker_playback_running", False)),
             speaker_frames=int(payload.get("speaker_frames_written", 0)),
@@ -51,32 +56,67 @@ class Snapshot:
         )
 
 
-def fetch_snapshot(url: str, timeout: float) -> Snapshot:
-    context = ssl._create_unverified_context()  # noqa: S323 - local self-signed HTTPS diagnostic
-    request = urllib.request.Request(url, method="GET")
+class NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+def pipeline_url(value: str) -> str:
+    parts = urllib.parse.urlsplit(value)
+    if (parts.scheme != "https" or not parts.hostname or parts.username or parts.password
+            or parts.path != "/api/conference/audio-pipeline" or parts.query or parts.fragment):
+        raise argparse.ArgumentTypeError("Use an HTTPS audio-pipeline endpoint without credentials")
+    return value
+
+
+def fetch_snapshot(
+    url: str, timeout: float, *, ca: Path = DEFAULT_CA, token: str = "",
+) -> Snapshot:
+    pipeline_url(url)
+    if any(ord(c) < 32 or ord(c) > 126 for c in token):
+        raise ValueError("Token must contain printable ASCII only")
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    context.load_verify_locations(cafile=str(ca))
+    opener = urllib.request.build_opener(
+        urllib.request.ProxyHandler({}),
+        urllib.request.HTTPSHandler(context=context), NoRedirect(),
+    )
+    headers = {"Accept": "application/json"}
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    request = urllib.request.Request(url, headers=headers, method="GET")
     try:
-        with urllib.request.urlopen(request, timeout=timeout, context=context) as response:
-            if response.status != 200:
-                raise RuntimeError(f"HTTP {response.status}")
-            payload = json.load(response)
-    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
-        raise RuntimeError(f"Could not read audio pipeline: {exc}") from exc
+        with opener.open(request, timeout=timeout) as response:
+            raw = response.read(262145)
+        if len(raw) > 262144:
+            raise ValueError("Audio-pipeline response too large")
+        payload = json.loads(raw)
+    except urllib.error.HTTPError as exc:
+        code = exc.code
+        exc.close()
+        raise RuntimeError(f"Audio-pipeline request failed (HTTP {code})") from None
+    except (OSError, ValueError):
+        raise RuntimeError("Could not read trusted audio-pipeline JSON response") from None
 
     if not isinstance(payload, dict):
-        raise RuntimeError("Audio-pipeline response is not a JSON object")
+        raise TypeError("Audio-pipeline response is not a JSON object")
     return Snapshot.from_payload(payload)
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--url", default=DEFAULT_URL)
+    parser.add_argument("--url", type=pipeline_url, default=DEFAULT_URL)
+    parser.add_argument("--ca", type=Path, default=DEFAULT_CA)
     parser.add_argument("--seconds", type=float, default=20.0)
     parser.add_argument("--interval", type=float, default=1.0)
     parser.add_argument("--timeout", type=float, default=3.0)
     args = parser.parse_args()
 
-    if args.seconds <= 0 or args.interval <= 0 or args.timeout <= 0:
+    if any(not math.isfinite(value) or value <= 0
+           for value in (args.seconds, args.interval, args.timeout)):
         parser.error("--seconds, --interval, and --timeout must be positive")
+
+    token = os.environ.get("CONFERENCE_ACCESS_TOKEN", "")
 
     print("Production AEC reference mirror monitor")
     print("=======================================")
@@ -90,11 +130,28 @@ def main() -> int:
     maximum_difference = 0
     saw_active = False
     samples = 0
+    observed_failures: set[str] = set()
     deadline = time.monotonic() + args.seconds
 
     while time.monotonic() < deadline:
-        current = fetch_snapshot(args.url, args.timeout)
+        try:
+            current = fetch_snapshot(args.url, args.timeout, ca=args.ca, token=token)
+        except (OSError, ValueError, TypeError, RuntimeError):
+            print("RESULT: UNAVAILABLE (trusted endpoint or credentials could not be verified)")
+            print("Check the CA and CONFERENCE_ACCESS_TOKEN environment variable locally.")
+            return 2
         samples += 1
+        if current.speaker_error:
+            observed_failures.add("speaker reported an error during sampling")
+        if current.reference_error:
+            observed_failures.add("reference reported an error during sampling")
+        if not current.reference_enabled:
+            observed_failures.add("echo reference mirroring was disabled during sampling")
+        if latest is not None and (
+            current.speaker_frames < latest.speaker_frames
+            or current.reference_frames < latest.reference_frames
+        ):
+            observed_failures.add("audio frame counter reset during sampling")
         latest = current
         if first is None:
             first = current
@@ -111,22 +168,18 @@ def main() -> int:
             f"speaker_run={str(current.speaker_running).lower():5s} "
             f"ref_run={str(current.reference_running).lower():5s}"
         )
-        time.sleep(args.interval)
+        time.sleep(min(args.interval, max(0.0, deadline - time.monotonic())))
 
     assert first is not None and latest is not None
 
     speaker_delta = latest.speaker_frames - first.speaker_frames
     reference_delta = latest.reference_frames - first.reference_frames
 
-    failures: list[str] = []
+    failures = sorted(observed_failures)
     warnings: list[str] = []
 
     if not latest.reference_enabled:
         failures.append("echo reference mirroring is disabled")
-    if latest.speaker_error:
-        failures.append(f"speaker error: {latest.speaker_error}")
-    if latest.reference_error:
-        failures.append(f"reference error: {latest.reference_error}")
     if not saw_active:
         failures.append("speaker and reference were never simultaneously running")
     if speaker_delta <= 0:

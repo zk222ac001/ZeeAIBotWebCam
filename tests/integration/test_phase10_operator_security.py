@@ -44,3 +44,29 @@ def test_conference_bearer_token_gate() -> None:
     finally:
         settings.conference.auth_required = previous_required
         settings.conference.access_token = previous_token
+
+
+def test_detailed_health_requires_media_token_and_public_probe_stays_minimal(monkeypatch):
+    token = "synthetic-health-token-123456"
+    monkeypatch.setattr(settings.conference, "auth_required", True)
+    monkeypatch.setattr(settings.conference, "access_token", token)
+    with TestClient(app) as client:
+        denied = client.get("/health")
+        assert denied.status_code == 401
+        assert "people_count" not in denied.text
+        assert client.get("/ready").json() == {"status": "ready"}
+        allowed = client.get("/health", headers={"Authorization": f"Bearer {token}"})
+        assert allowed.status_code == 200
+        assert "camera" in allowed.json()
+        assert allowed.headers["cache-control"] == "no-store"
+
+
+def test_non_ascii_bearer_headers_are_rejected_without_server_error(monkeypatch):
+    monkeypatch.setattr(settings.conference, "auth_required", True)
+    monkeypatch.setattr(settings.conference, "access_token", "synthetic-media-token-123456")
+    monkeypatch.setattr(settings.control_access, "auth_required", True)
+    monkeypatch.setattr(settings.control_access, "access_token", "synthetic-control-token-123456")
+    with TestClient(app) as client:
+        headers = {b"Authorization": b"Bearer invalid-\xff-token"}
+        assert client.get("/health", headers=headers).status_code == 401
+        assert client.post("/api/control/lease", json={"owner": "test"}, headers=headers).status_code == 401

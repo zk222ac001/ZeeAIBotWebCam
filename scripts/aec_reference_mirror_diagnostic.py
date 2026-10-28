@@ -30,8 +30,8 @@ import subprocess
 import tempfile
 import threading
 import time
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Sequence
 
 from robotic_classroom.core.config import load_settings
 
@@ -73,11 +73,11 @@ def tone_projection(samples: Sequence[int], sample_rate: int, frequency: float) 
 
 def make_mono_tone(sample_rate: int, duration: float, frequency: float, level_dbfs: float) -> bytes:
     peak = 32767.0 * (10.0 ** (level_dbfs / 20.0))
-    count = int(round(sample_rate * duration))
+    count = round(sample_rate * duration)
     values = array.array(
         "h",
         (
-            int(round(peak * math.sin(2.0 * math.pi * frequency * n / sample_rate)))
+            round(peak * math.sin(2.0 * math.pi * frequency * n / sample_rate))
             for n in range(count)
         ),
     )

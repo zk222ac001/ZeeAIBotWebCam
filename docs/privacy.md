@@ -24,10 +24,10 @@ The Pi profile publishes real audio/video when sessions are established, and loc
 
 ## Access limitations to understand
 
-- Conference authentication protects camera frames and camera/audio/tracking observation routes when enabled.
+- Conference authentication protects detailed `/health`, camera frames and camera/audio/tracking observation routes when enabled.
 - Separate control authentication protects control acquisition and camera control operations; leases and safety checks govern motion.
 - Both committed profiles set the two authentication gates to false. Local environment overrides must enable them for shared access.
-- In the inspected source, unauthenticated `/health` includes room observations such as people count, speech state, direction and speaker/target status. Other operational routes including `/api/sensors`, `/api/safety` and `/api/readiness` also expose status.
+- The minimal `/ready` probe remains public and contains no classroom observations. Operational routes including `/api/sensors`, `/api/safety` and `/api/readiness` remain public and expose device/release status. Detailed `/health` requires the conference token when authentication is enabled.
 - Emergency stop is intentionally reachable without acquiring a lease. Network exposure can therefore permit disruption even where other gates are enabled.
 
 **Use a restricted private network or an access-controlled gateway for the whole application.** Endpoint token settings alone do not hide all operational information. See [Studio deployment](studio-deployment.md) for local token setup.
