@@ -31,6 +31,7 @@ if str(SRC) not in sys.path:
 os.environ["APP_CONFIG"] = str(ROOT / "config.pi.yaml")
 
 from fastapi.testclient import TestClient
+
 from robotic_classroom.web import app as app_module
 
 
@@ -43,7 +44,7 @@ def port_in_use(host: str = "127.0.0.1", port: int = 8000) -> bool:
 def require_ok(response, label: str) -> dict:
     try:
         payload = response.json()
-    except Exception:
+    except ValueError:
         payload = {"text": response.text}
     if response.status_code >= 400:
         raise RuntimeError(f"{label} failed: HTTP {response.status_code} {payload}")

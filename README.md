@@ -8,7 +8,7 @@
 [![Python](https://img.shields.io/badge/Python-3.11–3.13-3776AB?logo=python&logoColor=white)](pyproject.toml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-teal.svg)](LICENSE)
 
-[**Get started**](#quick-start--no-robot-required) · [**Documentation**](docs/README.md) · [**Deploy on Pi**](docs/studio-deployment.md) · [**Privacy**](docs/privacy.md) · [**Security**](SECURITY.md)
+[**Get started**](#quick-start--no-robot-required) · [**Documentation**](docs/README.md) · [**Deploy on Pi**](docs/studio-deployment.md) · [**Release workflow**](docs/production-release.md) · [**Privacy**](docs/privacy.md) · [**Security**](SECURITY.md)
 
 ---
 
@@ -59,7 +59,7 @@ The default `config.yaml` binds to loopback, uses mock hardware/camera/audio/con
 Verify the development setup:
 
 ```bash
-ruff check src tests
+ruff check src tests scripts
 pytest -v
 ```
 

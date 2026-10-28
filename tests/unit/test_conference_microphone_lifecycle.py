@@ -164,3 +164,41 @@ async def test_concurrent_offers_obey_session_capacity(conference):
     assert len(state.players) == 1
     await backend.stop()
     assert not state.capture_open
+
+
+@pytest.mark.asyncio
+async def test_abandoned_negotiation_releases_slot_without_dropping_connected_peer(conference):
+    backend, state = conference
+    await backend.start()
+    first = await backend.create_answer(OFFER)
+    second = await backend.create_answer(OFFER)
+    backend._sessions[first.session_id].created_monotonic -= 60
+    backend._sessions[second.session_id].created_monotonic -= 60
+    state.peers[1].connectionState = "connected"
+    status = await backend.status()
+    assert status.active_sessions == 1
+    assert status.sessions[0].session_id == second.session_id
+    assert state.peers[0].connectionState == "closed"
+    assert state.capture_open
+    await backend.stop()
+
+
+@pytest.mark.asyncio
+async def test_offer_timeout_cancels_negotiation_and_releases_offer_lock(conference, monkeypatch):
+    backend, state = conference
+    backend.config.connection_timeout_seconds = 0.01
+    cancelled = False
+
+    async def stuck_offer(offer):
+        nonlocal cancelled
+        try:
+            await asyncio.sleep(60)
+        finally:
+            cancelled = True
+
+    monkeypatch.setattr(backend, "_create_answer", stuck_offer)
+    with pytest.raises(RuntimeError, match="negotiation timed out"):
+        await backend.create_answer(OFFER)
+    assert cancelled
+    assert not backend._offer_lock.locked()
+    assert not state.players

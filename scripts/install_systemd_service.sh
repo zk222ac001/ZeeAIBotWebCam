@@ -98,6 +98,15 @@ else
   echo "Keeping existing $ENV_PATH"
 fi
 
+# Prepare secure managed credentials before enabling a unit that requires them.
+# Existing valid tokens and unrelated deployment settings are preserved.
+sudo "$ROOT_DIR/.venv/bin/python" "$ROOT_DIR/scripts/setup_studio_access.py" --apply
+
+if [ -f "$UNIT_PATH" ] && ! cmp -s "$TMP_UNIT" "$UNIT_PATH"; then
+  UNIT_BACKUP="${UNIT_PATH}.previous-$(date -u +%Y%m%dT%H%M%SZ)"
+  sudo cp -p "$UNIT_PATH" "$UNIT_BACKUP"
+  echo "Previous unit saved for rollback: $UNIT_BACKUP"
+fi
 sudo install -m 0644 "$TMP_UNIT" "$UNIT_PATH"
 sudo systemctl daemon-reload
 sudo systemctl enable "$UNIT_NAME"

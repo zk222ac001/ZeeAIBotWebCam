@@ -18,6 +18,7 @@
 | [Hardware API inventory](hardware-api-inventory.md) | Hardware integration references |
 | [Safety](safety.md) | Motion supervision and staged testing |
 | [Studio deployment](studio-deployment.md) | Interface, tokens, HTTPS and private access |
+| [Production release](production-release.md) | Release bundles, preflight, installation, acceptance and rollback |
 | [Speaker switching](speaker-switching.md) | Speaker-selection behavior |
 | [Pan-aware speaker calibration](pan-aware-speaker-calibration.md) | Audio/camera geometry and calibration |
 | [Stationary classroom validation](stationary-classroom-validation.md) | Supervised acceptance procedure |

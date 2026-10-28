@@ -31,6 +31,26 @@ from robotic_classroom.hardware.factory import create_hardware_service
 from robotic_classroom.safety.supervisor import SafetySupervisor
 
 
+def cleanup_hardware(hardware, supervisor) -> None:
+    """Attempt every cleanup action even if a driver or supervisor raises."""
+    failed = False
+    actions = (
+        [("emergency stop", supervisor.emergency_stop),
+         ("watchdog shutdown", supervisor.stop_watchdog)]
+        if supervisor is not None else [("motor stop", hardware.stop_motion)]
+    )
+    actions.append(("hardware close", hardware.stop))
+    for label, action in actions:
+        try:
+            action()
+        except Exception as exc:  # noqa: BLE001 - every cleanup action must still be attempted
+            failed = True
+            print(f"{label} failed: {type(exc).__name__}", file=sys.stderr)
+    if failed:
+        raise RuntimeError("Hardware cleanup failed; inspect physical stop before proceeding")
+    print("Cleanup requests completed. Physical stopping must be observed separately.")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Guarded TurboPi watchdog hardware test")
     parser.add_argument(
@@ -109,26 +129,13 @@ def main() -> None:
         if supervisor.motion_active:
             raise RuntimeError("FAIL: watchdog did not clear active motion")
 
-        print("RESULT: PASS - heartbeat expired and watchdog forced chassis stop.")
+        print("RESULT: PASS - heartbeat expired and software reports motion inactive.")
+        print("Physical motor stopping must be observed separately.")
     except KeyboardInterrupt:
         print("\nInterrupted by user; forcing stop.")
         raise
     finally:
-        if supervisor is not None:
-            try:
-                supervisor.emergency_stop()
-            finally:
-                supervisor.stop_watchdog()
-        else:
-            try:
-                hardware.stop_motion()
-            except Exception:
-                pass
-        try:
-            hardware.stop()
-        except Exception:
-            pass
-        print("Final stop issued and hardware closed.")
+        cleanup_hardware(hardware, supervisor)
 
 
 if __name__ == "__main__":

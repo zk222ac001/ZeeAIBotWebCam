@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Literal
 
 import yaml
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class ApplicationConfig(BaseModel):
@@ -187,6 +187,7 @@ class ConferenceConfig(BaseModel):
     required: bool = False
     max_sessions: int = Field(default=2, ge=1, le=10)
     session_timeout_seconds: int = Field(default=1800, ge=60, le=86400)
+    connection_timeout_seconds: float = Field(default=30.0, ge=5.0, le=120.0)
     ice_gathering_timeout_seconds: float = Field(default=5.0, ge=1.0, le=30.0)
     publish_video: bool = True
 
@@ -266,6 +267,8 @@ class PrivacyConfig(BaseModel):
 
 
 class Settings(BaseModel):
+    model_config = ConfigDict(hide_input_in_errors=True)
+
     application: ApplicationConfig
     hardware: HardwareConfig
     camera: CameraConfig = Field(default_factory=CameraConfig)
@@ -280,6 +283,20 @@ class Settings(BaseModel):
     logging: LoggingConfig
     safety: SafetyConfig
     privacy: PrivacyConfig
+
+    @model_validator(mode="after")
+    def validate_production_access(self) -> Settings:
+        if self.application.environment != "production":
+            return self
+        if not self.conference.auth_required or not self.control_access.auth_required:
+            raise ValueError("production requires conference and control authentication")
+        media = self.conference.access_token
+        control = self.control_access.access_token
+        if not media or not control or media == control:
+            raise ValueError("production requires separate conference and control credentials")
+        if any(ord(char) < 33 or ord(char) > 126 for char in media + control):
+            raise ValueError("production credentials must use printable ASCII without whitespace")
+        return self
 
 
 def load_settings(config_file: str | Path | None = None) -> Settings:

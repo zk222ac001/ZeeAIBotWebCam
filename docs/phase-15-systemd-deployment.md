@@ -111,7 +111,12 @@ python scripts/service_healthcheck.py --wait 5
 
 ## Optional deployment environment
 
-The installer creates, only when absent:
+The installer creates the environment file when absent and runs
+`setup_studio_access.py --apply` to prepare both authentication gates with separate
+credentials, preserving valid existing tokens. It saves a previous service unit
+when the deployment path changes. The service is not started without `--start`.
+
+Managed environment location:
 
 ```text
 /etc/zee-robot/zee-robot.env

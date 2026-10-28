@@ -8,6 +8,43 @@ if [ -f .venv/bin/activate ]; then
   . .venv/bin/activate
 fi
 
+# Local operator credentials for manual launches (ignored by Git). The systemd
+# deployment continues to use its root-managed EnvironmentFile.
+# systemd owns the deployment environment; local manual-launch settings must
+# never override its managed credentials or validation settings.
+if [ -z "${INVOCATION_ID:-}" ] && [ -f .env ]; then
+  if [ ! -f .env ] || [ -L .env ] || [ "$(stat -c '%u' .env)" != "$UID" ] \
+      || [ "$(stat -c '%a' .env)" != 600 ]; then
+    echo 'Refusing .env: it must be a regular file owned by this user with mode 600.'
+    exit 1
+  fi
+  set -a
+  . ./.env
+  set +a
+fi
+
+# A managed deployment must not fall back to unauthenticated access when a
+# local .env previously supplied credentials that EnvironmentFile lacks.
+if [ -n "${INVOCATION_ID:-}" ]; then
+  case "${CONFERENCE_AUTH_REQUIRED:-}" in
+    true|True|TRUE|1|yes|YES|on|ON) ;;
+    *) echo 'Configure conference authentication in /etc/zee-robot/zee-robot.env before starting systemd.'; exit 1 ;;
+  esac
+  case "${CONTROL_AUTH_REQUIRED:-}" in
+    true|True|TRUE|1|yes|YES|on|ON) ;;
+    *) echo 'Configure control authentication in /etc/zee-robot/zee-robot.env before starting systemd.'; exit 1 ;;
+  esac
+  if [ -z "${CONFERENCE_ACCESS_TOKEN:-}" ] || [ -z "${CONTROL_ACCESS_TOKEN:-}" ]; then
+    echo 'Managed deployment credentials are missing; run scripts/setup_studio_access.py with sudo.'
+    exit 1
+  fi
+  if [ "${#CONFERENCE_ACCESS_TOKEN}" -lt 16 ] || [ "${#CONTROL_ACCESS_TOKEN}" -lt 16 ] \
+      || [ "$CONFERENCE_ACCESS_TOKEN" = "$CONTROL_ACCESS_TOKEN" ]; then
+    echo 'Managed deployment requires separate conference and control credentials of at least 16 characters.'
+    exit 1
+  fi
+fi
+
 # PyAV's bundled ALSA library may point to a build-time /tmp/vendor path.
 # Use the Pi's installed ALSA definitions, preserving explicit overrides.
 export ALSA_CONFIG_PATH="${ALSA_CONFIG_PATH:-/usr/share/alsa/alsa.conf}"

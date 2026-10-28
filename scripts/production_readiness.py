@@ -49,7 +49,7 @@ def fetch_readiness(base_url: str, ca: Path, timeout: float) -> dict[str, Any]:
         raise ValueError("response too large")
     data = json.loads(raw)
     if not isinstance(data, dict):
-        raise ValueError("expected JSON object")
+        raise TypeError("expected JSON object")
     return data
 
 
@@ -106,7 +106,7 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         data = fetch_readiness(args.base_url, args.ca, args.timeout)
-    except (OSError, ValueError, urllib.error.URLError, json.JSONDecodeError):
+    except (OSError, ValueError, TypeError, urllib.error.URLError, json.JSONDecodeError):
         print("UNAVAILABLE: trusted HTTPS readiness endpoint could not be read")
         return 2
 

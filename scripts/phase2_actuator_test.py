@@ -51,8 +51,8 @@ def close_board(board) -> None:
     if port is not None and getattr(port, "is_open", False):
         try:
             port.flush()
-        except Exception:
-            pass
+        except OSError as exc:
+            print(f"Serial flush failed during cleanup: {type(exc).__name__}", file=sys.stderr)
         time.sleep(0.1)
         port.close()
 

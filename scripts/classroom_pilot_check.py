@@ -16,7 +16,8 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from collections import Counter
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+from itertools import pairwise
 from pathlib import Path
 from typing import Any
 
@@ -110,9 +111,7 @@ def project(name: str, payload: dict[str, Any]) -> dict[str, Any]:
     result: dict[str, Any] = {}
     for key, path in FIELDS[name].items():
         value = extract(payload, path)
-        if type(value) is bool or number(value) or value is None:
-            result[key] = value
-        elif isinstance(value, str) and value in STATES:
+        if type(value) is bool or number(value) or value is None or isinstance(value, str) and value in STATES:
             result[key] = value
         else:
             result[key] = None
@@ -165,7 +164,7 @@ class StatusClient:
             raise ValueError("Response too large")
         data = json.loads(raw)
         if not isinstance(data, dict):
-            raise ValueError("Expected a JSON object")
+            raise TypeError("Expected a JSON object")
         return project(name, data)
 
 
@@ -183,7 +182,7 @@ def read_sample(client: StatusClient) -> tuple[dict[str, Any], dict[str, str]]:
                 "TLS certificate validation failed" if isinstance(exc.reason, ssl.SSLError)
                 else "Connection failed or timed out"
             )
-        except (OSError, ValueError):
+        except (OSError, ValueError, TypeError):
             errors[name] = "Connection or JSON response error"
         # On uncertain or active chassis state, stop sampling promptly. This
         # does not send STOP. A person must use the existing stop control.
@@ -356,7 +355,7 @@ def make_report(records: list[dict[str, Any]], requested: float, elapsed: float,
                 reason: str, interval: float) -> dict[str, Any]:
     counts = Counter(flag for record in records for flag in record["flags"])
     totals = Counter(record["phase"] for record in records)
-    gaps = [b["elapsed_s"] - a["elapsed_s"] for a, b in zip(records, records[1:])]
+    gaps = [b["elapsed_s"] - a["elapsed_s"] for a, b in pairwise(records)]
     return {
         "schema_version": 2,
         "result": "INCOMPLETE" if reason != "duration_complete" or not records else (
@@ -391,8 +390,8 @@ def write_reports(folder: Path, report: dict[str, Any]) -> None:
     lines = ["# Supervised classroom pilot", "", f"**Result: {report['result']}**",
              f"Stop reason: `{report['stop_reason']}`", "",
              f"Duration: {report['elapsed_seconds']} / {report['requested_seconds']} seconds.",
-             f"Samples: {report['sample_count']}. Maximum gap: "
-             f"{report['max_sample_gap_seconds']} seconds.", "",
+             (f"Samples: {report['sample_count']}. Maximum gap: "
+              f"{report['max_sample_gap_seconds']} seconds."), "",
              "## Review observations", "",
              "Counts below are samples with an observation, not distinct incidents.", ""]
     flags = report["observed_flag_sample_counts"]
@@ -447,11 +446,11 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("Duration must be <=3600 seconds and interval must be 0.5..30 seconds")
     try:
         client = StatusClient(args.base_url, args.ca, os.environ.get(args.token_env, ""))
-    except (OSError, ValueError):
+    except (OSError, ValueError, TypeError):
         print("SETUP ERROR: check the HTTPS origin, CA file, and token environment variable.")
         print("Use your existing .local-certs/zee-local-ca.crt; do not disable TLS verification.")
         return 2
-    folder = args.output_dir / datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S.%fZ")
+    folder = args.output_dir / datetime.now(UTC).strftime("%Y%m%dT%H%M%S.%fZ")
     try:
         folder.mkdir(parents=True, mode=0o700, exist_ok=False)
     except OSError:

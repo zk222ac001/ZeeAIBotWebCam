@@ -15,7 +15,7 @@ def require_conference_access(request: Request, config: ConferenceConfig) -> Non
     scheme, _, supplied = header.partition(" ")
     expected = config.access_token or ""
 
-    if scheme.lower() != "bearer" or not supplied or not hmac.compare_digest(supplied, expected):
+    if scheme.lower() != "bearer" or not supplied or not hmac.compare_digest(supplied.encode("utf-8"), expected.encode("utf-8")):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Conference authentication required",

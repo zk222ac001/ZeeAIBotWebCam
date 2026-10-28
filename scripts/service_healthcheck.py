@@ -67,7 +67,7 @@ class HealthClient:
             raise ValueError("response too large")
         payload = json.loads(raw)
         if not isinstance(payload, dict):
-            raise ValueError("expected a JSON object")
+            raise TypeError("expected a JSON object")
         return payload
 
 
@@ -112,7 +112,7 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         client = HealthClient(args.base_url, args.ca, args.timeout)
-    except (OSError, ValueError):
+    except (OSError, ValueError, TypeError):
         print("UNHEALTHY: cannot initialize trusted HTTPS health check")
         return 1
 
@@ -125,7 +125,7 @@ def main(argv: list[str] | None = None) -> int:
                 print("HEALTHY: HTTPS, safety watchdog, and autonomy service are ready")
                 return 0
             last_error = "; ".join(issues)
-        except (OSError, ValueError, urllib.error.URLError):
+        except (OSError, ValueError, TypeError, urllib.error.URLError):
             last_error = "HTTPS status endpoints are not ready"
 
         if time.monotonic() >= deadline:

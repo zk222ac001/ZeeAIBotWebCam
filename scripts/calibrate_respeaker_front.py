@@ -2,10 +2,11 @@
 from __future__ import annotations
 
 import argparse
-import json
 import math
 import time
-import urllib.request
+import urllib.parse
+
+from robotic_classroom.core.status_client import read_status
 
 
 def circular_mean_degrees(values: list[float]) -> float:
@@ -17,8 +18,10 @@ def circular_mean_degrees(values: list[float]) -> float:
 
 
 def fetch_json(url: str) -> dict:
-    with urllib.request.urlopen(url, timeout=2.0) as response:
-        return json.load(response)
+    parts = urllib.parse.urlsplit(url)
+    if parts.path != "/api/audio/status" or parts.query or parts.fragment:
+        raise ValueError("Use the HTTPS audio status endpoint without query parameters")
+    return read_status(parts.path, base_url=f"{parts.scheme}://{parts.netloc}")
 
 
 def main() -> None:
@@ -29,7 +32,7 @@ def main() -> None:
     parser.add_argument("--interval", type=float, default=0.1)
     parser.add_argument(
         "--url",
-        default="http://127.0.0.1:8000/api/audio/status",
+        default="https://localhost:8000/api/audio/status",
         help="Audio status endpoint",
     )
     args = parser.parse_args()
@@ -44,7 +47,7 @@ def main() -> None:
     while time.monotonic() < deadline:
         try:
             data = fetch_json(args.url)
-        except Exception as exc:
+        except (OSError, ValueError) as exc:
             print(f"Read error: {exc}")
             time.sleep(args.interval)
             continue

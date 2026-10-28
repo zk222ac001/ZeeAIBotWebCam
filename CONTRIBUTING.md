@@ -17,7 +17,7 @@ git switch -c docs/describe-your-change
 Before submitting code changes:
 
 ```bash
-ruff check src tests
+ruff check src tests scripts
 pytest -v
 ```
 

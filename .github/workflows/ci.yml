@@ -8,6 +8,9 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.11", "3.12", "3.13"]
     env:
       HARDWARE_MODE: mock
       CAMERA_MODE: mock
@@ -19,15 +22,29 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: ${{ matrix.python-version }}
 
       - name: Install
         run: |
           python -m pip install --upgrade pip
-          pip install -e ".[dev]"
+          pip install -e ".[dev,webrtc]"
 
       - name: Ruff
-        run: ruff check src tests
+        run: ruff check src tests scripts
 
       - name: Tests
         run: pytest -v
+
+      - name: Build distribution
+        run: pip wheel --no-deps --wheel-dir dist .
+
+      - name: Build release candidate
+        if: matrix.python-version == '3.13'
+        run: |
+          python scripts/build_release.py --output dist
+          for bundle in dist/zeeai-studio-*.tar.gz; do
+            tar -xzf "$bundle" -C "$RUNNER_TEMP"
+          done
+          for release_folder in "$RUNNER_TEMP"/zeeai-studio-*; do
+            python scripts/verify_release.py "$release_folder"
+          done

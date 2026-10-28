@@ -1,18 +1,15 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
-import json
 import math
 import os
+import socket
 import struct
 import subprocess
 import tempfile
 import time
-import urllib.error
-import urllib.request
 import wave
 
-BASE_URL = "http://127.0.0.1:8000"
 MIC_DEVICE = "plughw:2,0"
 SPEAKER_DEVICE = "plughw:3,0"
 SAMPLE_RATE = 16000
@@ -20,17 +17,15 @@ CHANNELS = 2
 DURATION = 4
 
 
-def get_json(path: str) -> dict[str, object]:
-    with urllib.request.urlopen(f"{BASE_URL}{path}", timeout=1.0) as response:
-        return json.loads(response.read().decode("utf-8"))
-
-
 def app_is_running() -> bool:
+    # The app may use HTTPS and authentication. Probe the listening port rather
+    # than treating an HTTP/TLS/auth error as permission to seize audio devices.
     try:
-        get_json("/health")
-    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError):
+        with socket.create_connection(("127.0.0.1", 8000), timeout=1.0):
+            return True
+    except ConnectionRefusedError:
         return False
-    return True
+    # Other network failures are uncertain and propagate before device access.
 
 
 def rms_dbfs(path: str) -> float:

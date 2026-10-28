@@ -65,3 +65,35 @@ def test_battery_cutoff_can_be_configured_without_guessing_default(monkeypatch) 
     assert SafetyConfig().minimum_battery_voltage is None
     monkeypatch.setenv("SAFETY_MINIMUM_BATTERY_VOLTAGE", "6.5")
     assert load_settings("config.yaml").safety.minimum_battery_voltage == 6.5
+
+
+@pytest.mark.parametrize("failure", ["disabled_media", "disabled_control", "shared", "whitespace"])
+def test_production_configuration_refuses_insecure_access(failure):
+    from robotic_classroom.core.config import Settings
+
+    payload = load_settings("config.yaml").model_dump()
+    payload["application"]["environment"] = "production"
+    payload["conference"].update(auth_required=True, access_token="synthetic-media-token-123456")
+    payload["control_access"].update(auth_required=True, access_token="synthetic-control-token-654321")
+    if failure == "disabled_media":
+        payload["conference"]["auth_required"] = False
+    elif failure == "disabled_control":
+        payload["control_access"]["auth_required"] = False
+    elif failure == "shared":
+        payload["control_access"]["access_token"] = payload["conference"]["access_token"]
+    else:
+        payload["conference"]["access_token"] = "synthetic token with whitespace"
+    with pytest.raises(ValidationError, match="production"):
+        Settings.model_validate(payload)
+
+
+def test_settings_validation_error_does_not_echo_private_configuration():
+    from robotic_classroom.core.config import Settings
+
+    payload = load_settings("config.yaml").model_dump()
+    payload["application"]["environment"] = "production"
+    payload["conference"].update(auth_required=True, access_token="synthetic-private-media-secret")
+    payload["control_access"].update(auth_required=True, access_token="synthetic-private-media-secret")
+    with pytest.raises(ValidationError) as exc:
+        Settings.model_validate(payload)
+    assert "synthetic-private-media-secret" not in str(exc.value)
