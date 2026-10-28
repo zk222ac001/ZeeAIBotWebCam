@@ -8,6 +8,11 @@ if [ -f .venv/bin/activate ]; then
   . .venv/bin/activate
 fi
 
+# PyAV's bundled ALSA library may point to a build-time /tmp/vendor path.
+# Use the Pi's installed ALSA definitions, preserving explicit overrides.
+export ALSA_CONFIG_PATH="${ALSA_CONFIG_PATH:-/usr/share/alsa/alsa.conf}"
+export ALSA_CONFIG_DIR="${ALSA_CONFIG_DIR:-/usr/share/alsa}"
+
 # Serialize launches and keep the lock while the app owns the hardware.
 # Existing instances started before this lock was added are handled below.
 exec 9>"${XDG_RUNTIME_DIR:-/tmp}/zee-ai-bot-webcam-${UID}.lock"
